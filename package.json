@@ -1,0 +1,16 @@
+{
+  "name": "dnd-character-creator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-edition D&D character creator (3.5e, 5e 2014, 5e 2024) with guided and expert flows.",
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/server.mjs",
+    "dev": "node scripts/server.mjs",
+    "pdf:export": "node scripts/export_parsable_pdf.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

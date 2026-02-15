@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Forge Character | Multi-Edition D&D Character Creator</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-layer" aria-hidden="true"></div>
+    <div class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">SRD Character Builder</p>
+          <h1>Forge Character</h1>
+          <p class="subtitle">
+            Build complete D&D characters for 3.5e, 5e (2014), and 5e (2024) with guided and expert flows.
+          </p>
+        </div>
+        <div class="header-actions">
+          <button id="useInGameBtn" class="btn" type="button">Use In Game Session</button>
+          <button id="randomizeCharacterBtn" class="btn" type="button">Randomize Character</button>
+          <button id="completeBuildBtn" class="btn btn-primary" type="button">Complete Character</button>
+          <button id="printSheetBtn" class="btn" type="button">Print / PDF</button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel wizard-panel">
+          <nav class="stepper" aria-label="Character builder steps">
+            <button class="step is-active" data-step="setup" type="button">1. Setup</button>
+            <button class="step" data-step="abilities" type="button">2. Abilities</button>
+            <button class="step" data-step="build" type="button">3. Build</button>
+            <button class="step" data-step="review" type="button">4. Review</button>
+          </nav>
+
+          <section class="section-card" data-step-panel="setup">
+            <h2>Game Setup</h2>
+            <p class="helper" id="rulesetTip"></p>
+
+            <div class="field-grid two-col">
+              <label class="field">
+                <span>Ruleset</span>
+                <select id="rulesetSelect"></select>
+              </label>
+              <label class="field">
+                <span>Experience Mode</span>
+                <select id="experienceMode">
+                  <option value="new">New Player</option>
+                  <option value="experienced">Experienced</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="field-grid two-col">
+              <label class="field">
+                <span>Character Name</span>
+                <input id="characterName" type="text" placeholder="Aelar, Thorn, Nyx..." />
+              </label>
+              <label class="field">
+                <span>Player Name</span>
+                <input id="playerName" type="text" placeholder="Your name" />
+              </label>
+            </div>
+
+            <div class="field-grid three-col">
+              <label class="field">
+                <span>Level</span>
+                <input id="characterLevel" type="number" min="1" max="20" value="1" />
+              </label>
+              <label class="field">
+                <span>Alignment</span>
+                <select id="alignmentSelect"></select>
+              </label>
+              <label class="field">
+                <span>Background</span>
+                <select id="backgroundSelect"></select>
+              </label>
+            </div>
+
+            <div class="field-grid three-col">
+              <label class="field">
+                <span>Species / Race</span>
+                <select id="speciesSelect"></select>
+              </label>
+              <label class="field">
+                <span>Class</span>
+                <select id="classSelect"></select>
+              </label>
+              <label class="field">
+                <span>Subclass (optional)</span>
+                <select id="subclassSelect"></select>
+              </label>
+            </div>
+
+            <label class="field">
+              <span>Character Notes</span>
+              <textarea id="characterNotes" rows="3" placeholder="Concept, backstory hook, table notes..."></textarea>
+            </label>
+
+            <section class="explainer-panel new-player-only">
+              <h3>Setup Explainer</h3>
+              <p class="helper">
+                These choices define how your character behaves in roleplay and what you can do mechanically in play.
+              </p>
+              <div id="setupExplainers" class="explainer-grid"></div>
+            </section>
+          </section>
+
+          <section class="section-card hidden" data-step-panel="abilities">
+            <h2>Ability Scores</h2>
+            <p class="helper" id="abilityTip"></p>
+
+            <div class="field-grid two-col">
+              <label class="field">
+                <span>Allocation Method</span>
+                <select id="abilityMethodSelect"></select>
+              </label>
+              <div class="method-summary" id="abilityMethodSummary"></div>
+            </div>
+
+            <div id="abilityTable" class="ability-table"></div>
+            <div class="pill-row">
+              <span class="pill" id="pointBuyPill"></span>
+              <span class="pill" id="validationPill"></span>
+            </div>
+            <div class="quick-actions">
+              <button class="btn" type="button" id="applyStandardArrayBtn">Apply Standard Array</button>
+              <button class="btn" type="button" id="resetAbilitiesBtn">Reset Scores</button>
+            </div>
+          </section>
+
+          <section class="section-card hidden" data-step-panel="build">
+            <h2>Build Choices</h2>
+            <section class="explainer-panel new-player-only">
+              <h3>Skills and Spells Explained</h3>
+              <p class="helper">
+                Skills cover non-combat problem solving. Spells are class-limited magical options that use action economy and resources.
+              </p>
+              <div id="buildExplainers" class="explainer-grid"></div>
+            </section>
+
+            <div class="field-grid two-col">
+              <div>
+                <label class="field">
+                  <span>Skills (<span id="skillsLimitLabel">0</span> max)</span>
+                </label>
+                <div id="skillsList" class="select-list"></div>
+              </div>
+              <div>
+                <label class="field">
+                  <span>Feats</span>
+                </label>
+                <div id="featsList" class="select-list"></div>
+              </div>
+            </div>
+
+            <div class="field-grid two-col">
+              <div>
+                <label class="field">
+                  <span>Spells</span>
+                  <input id="spellSearch" type="search" placeholder="Search spell name, school, class" />
+                </label>
+                <div id="spellsList" class="select-list long"></div>
+              </div>
+              <div>
+                <label class="field">
+                  <span>Items</span>
+                  <input id="itemSearch" type="search" placeholder="Search item name or type" />
+                </label>
+                <div id="itemsList" class="select-list long"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="section-card hidden" data-step-panel="review">
+            <h2>Review and Save</h2>
+            <p class="helper">Run validation, save drafts locally, export/import JSON, and print your final sheet.</p>
+
+            <div class="quick-actions wrap">
+              <button id="validateBtn" class="btn" type="button">Validate Build</button>
+              <button id="saveDraftBtn" class="btn" type="button">Save Draft</button>
+              <button id="newCharacterBtn" class="btn" type="button">New Character</button>
+              <button id="exportJsonBtn" class="btn" type="button">Export JSON</button>
+              <button id="exportPdfBtn" class="btn" type="button">Export Parsable PDF</button>
+              <label class="btn file-btn">
+                Import JSON
+                <input id="importJsonInput" type="file" accept="application/json" />
+              </label>
+            </div>
+
+            <div class="field-grid two-col">
+              <label class="field">
+                <span>Saved Drafts</span>
+                <select id="savedDraftsSelect"></select>
+              </label>
+              <div class="quick-actions">
+                <button id="loadDraftBtn" class="btn" type="button">Load Draft</button>
+                <button id="deleteDraftBtn" class="btn btn-danger" type="button">Delete Draft</button>
+              </div>
+            </div>
+
+            <div id="statusMessage" class="status-message" role="status" aria-live="polite"></div>
+            <div id="validationList" class="validation-list"></div>
+            <div id="coveragePanel" class="coverage-panel"></div>
+          </section>
+        </section>
+
+        <aside class="panel sheet-panel">
+          <section>
+            <h2>Character Sheet</h2>
+            <p class="helper">Live derived stats, proficiencies, features, and selected gear/spells.</p>
+            <div id="sheetContainer"></div>
+          </section>
+
+          <section class="chat-panel">
+            <h3>Guide Chat (Optional)</h3>
+            <p class="helper">Ask rules or build questions. Replies are deterministic and based on the selected ruleset.</p>
+            <div id="chatLog" class="chat-log" aria-live="polite"></div>
+            <div class="chat-input-row">
+              <input id="chatInput" type="text" placeholder="Example: Recommend a beginner class" />
+              <button id="chatSendBtn" class="btn" type="button">Send</button>
+            </div>
+          </section>
+
+          <section class="license-panel">
+            <h3>Content Scope</h3>
+            <p id="licenseNotice"></p>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <template id="listItemTemplate">
+      <label class="list-item">
+        <input type="checkbox" />
+        <span class="list-item-content"></span>
+      </label>
+    </template>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
