@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SessionStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum SessionSeatRole {
+  DM
+  PLAYER
+  OBSERVER
+}
+
+enum SessionImportStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model User {
+  id         String          @id @default(cuid())
+  name       String
+  email      String?         @unique
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  characters Character[]
+  sessions   Session[]
+  seats      SessionSeat[]
+  imports    SessionImport[]
+}
+
+model ContentPackVersion {
+  id         String      @id @default(cuid())
+  rulesetId  String
+  version    String
+  label      String?
+  checksum   String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  characters Character[]
+
+  @@unique([rulesetId, version])
+}
+
+model Character {
+  id                   String              @id @default(cuid())
+  ownerId              String?
+  contentPackVersionId String?
+  name                 String
+  rulesetId            String
+  experienceMode       String
+  notes                String?
+  state                Json
+  latestDerived        Json?
+  latestIssues         Json?
+  issueSummary         Json?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  owner                User?               @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  contentPackVersion   ContentPackVersion? @relation(fields: [contentPackVersionId], references: [id], onDelete: SetNull)
+  revisions            CharacterRevision[]
+  sessionImports       SessionImport[]
+}
+
+model CharacterRevision {
+  id           String    @id @default(cuid())
+  characterId  String
+  revisionNumber Int
+  reason       String?
+  state        Json
+  derived      Json?
+  issues       Json?
+  issueSummary Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  character    Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@unique([characterId, revisionNumber])
+}
+
+model Session {
+  id         String          @id @default(cuid())
+  ownerId    String?
+  title      String
+  rulesetId  String
+  joinCode   String          @unique
+  status     SessionStatus   @default(ACTIVE)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  owner      User?           @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  seats      SessionSeat[]
+  imports    SessionImport[]
+}
+
+model SessionSeat {
+  id          String          @id @default(cuid())
+  sessionId   String
+  userId      String?
+  displayName String
+  role        SessionSeatRole @default(PLAYER)
+  joinedAt    DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  session     Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user        User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model SessionImport {
+  id                String              @id @default(cuid())
+  sessionId         String
+  characterId       String
+  submittedByUserId String?
+  submittedByName   String?
+  status            SessionImportStatus @default(PENDING)
+  note              String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  session           Session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  character         Character           @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  submittedByUser   User?               @relation(fields: [submittedByUserId], references: [id], onDelete: SetNull)
+}

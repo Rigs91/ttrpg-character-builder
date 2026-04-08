@@ -20,6 +20,15 @@ import {
 import { buildSimplePdf } from "./utils/pdfBuilder.js";
 import { buildParsableCharacterLines, buildParsableCharacterPayload } from "./utils/characterExport.js";
 import { buildChatReply } from "./chat/assistant.js";
+import {
+  applyAssistPreviewToState,
+  buildAssistReplyEnvelope,
+  createAssistDraft,
+  fetchAiModelCatalog,
+  mapLegacyStepToAiStep,
+  normalizeChatHistory,
+  requestCharacterAssist
+} from "./chat/aiAssistant.js";
 
 const dom = {
   rulesetSelect: document.querySelector("#rulesetSelect"),
@@ -71,6 +80,9 @@ const dom = {
   setupExplainers: document.querySelector("#setupExplainers"),
   buildExplainers: document.querySelector("#buildExplainers"),
   licenseNotice: document.querySelector("#licenseNotice"),
+  chatModePill: document.querySelector("#chatModePill"),
+  chatModelSelect: document.querySelector("#chatModelSelect"),
+  chatStatusNote: document.querySelector("#chatStatusNote"),
   chatLog: document.querySelector("#chatLog"),
   chatInput: document.querySelector("#chatInput"),
   chatSendBtn: document.querySelector("#chatSendBtn")
@@ -84,10 +96,19 @@ let issues = [];
 let activeStep = "setup";
 let chatMessages = [
   {
-    role: "bot",
-    text: "Guide active. Ask for class recommendations, point-buy help, spell picks, or validation tips."
+    role: "assistant",
+    text: "Describe the character you want in plain English and I will fill the builder for you. If Ollama is offline, this panel falls back to guide answers."
   }
 ];
+let aiState = {
+  initialized: false,
+  loading: false,
+  available: false,
+  selectedModel: "",
+  models: [],
+  reason: "Checking local AI availability...",
+  busy: false
+};
 
 const ALIGNMENT_GUIDE = {
   "Lawful Good": {
@@ -199,6 +220,7 @@ function createInitialState(ruleset) {
     abilityMethodId: ruleset.abilityMethods[0]?.id || "point-buy",
     assignedScores: { ...DEFAULT_ABILITY_SCORES },
     selectedSkillIds: [],
+    skillRanks: {},
     selectedFeatIds: [],
     selectedSpellIds: [],
     selectedItemIds: [],
@@ -213,6 +235,86 @@ function status(message) {
 
 function currentRuleset() {
   return getRulesetById(state.rulesetId);
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function trimChatMessages() {
+  if (chatMessages.length > 50) {
+    chatMessages = chatMessages.slice(chatMessages.length - 50);
+  }
+}
+
+function updateChatModePill(tone, text) {
+  dom.chatModePill.className = `chat-status-pill chat-status-pill--${tone}`;
+  dom.chatModePill.textContent = text;
+}
+
+function renderChatStatus() {
+  if (aiState.loading) {
+    updateChatModePill("checking", "Checking AI...");
+    dom.chatStatusNote.textContent = "Probing the local API and Ollama model catalog.";
+    dom.chatModelSelect.innerHTML = "<option value=''>Checking Ollama...</option>";
+    dom.chatModelSelect.disabled = true;
+    return;
+  }
+
+  if (aiState.available) {
+    const modelOptions = aiState.models
+      .map((model) => {
+        const selected = model.name === aiState.selectedModel ? "selected" : "";
+        return `<option value="${escapeHtml(model.name)}" ${selected}>${escapeHtml(model.name)}</option>`;
+      })
+      .join("");
+    dom.chatModelSelect.innerHTML = modelOptions || "<option value=''>Default model</option>";
+    dom.chatModelSelect.disabled = aiState.busy || aiState.models.length <= 1;
+    updateChatModePill("ready", `AI Ready${aiState.selectedModel ? `: ${aiState.selectedModel}` : ""}`);
+    dom.chatStatusNote.textContent = "Free text now auto-fills the builder through Ollama. Send a follow-up message any time to refine the current draft.";
+    return;
+  }
+
+  dom.chatModelSelect.innerHTML = "<option value=''>Guide mode</option>";
+  dom.chatModelSelect.disabled = true;
+  updateChatModePill("offline", "Guide Mode");
+  dom.chatStatusNote.textContent = aiState.reason
+    ? `AI autofill is offline: ${aiState.reason}`
+    : "AI autofill is offline. This panel still answers with deterministic guide help.";
+}
+
+function setChatBusy(isBusy) {
+  aiState.busy = isBusy;
+  dom.chatSendBtn.disabled = isBusy;
+  dom.chatInput.disabled = isBusy;
+  renderChatStatus();
+}
+
+async function ensureAiCatalog(force = false) {
+  if (aiState.loading) {
+    return;
+  }
+  if (aiState.initialized && !force) {
+    return;
+  }
+
+  aiState.loading = true;
+  renderChatStatus();
+  const catalog = await fetchAiModelCatalog();
+  aiState.loading = false;
+  aiState.initialized = true;
+  aiState.available = Boolean(catalog.available && catalog.models?.length);
+  aiState.models = catalog.models || [];
+  aiState.reason = catalog.reason || (aiState.available ? "" : "The local API or Ollama is unavailable.");
+  if (!aiState.models.some((entry) => entry.name === aiState.selectedModel)) {
+    aiState.selectedModel = catalog.defaultModel || aiState.models[0]?.name || "";
+  }
+  renderChatStatus();
 }
 
 function optionHtml(items, selectedId, includeEmpty = false, emptyLabel = "Select...") {
@@ -375,6 +477,7 @@ function randomizeCharacter() {
 
   const classSkillLimit = Math.max(0, Number(randomClass?.skillChoices || 0));
   state.selectedSkillIds = randomSubsetIds(ruleset.skills, classSkillLimit);
+  state.skillRanks = {};
 
   const featMax = Math.min(3, ruleset.feats.length);
   const featCount = featMax > 0 ? randomInt(1, featMax) : 0;
@@ -569,6 +672,7 @@ function applyRulesetDefaults(ruleset) {
   state.abilityMethodId = ruleset.abilityMethods[0]?.id || "point-buy";
   state.assignedScores = { ...DEFAULT_ABILITY_SCORES };
   state.selectedSkillIds = [];
+  state.skillRanks = {};
   state.selectedFeatIds = [];
   state.selectedSpellIds = [];
   state.selectedItemIds = [];
@@ -899,6 +1003,7 @@ function loadStateFromDraft(draft) {
     ...draft,
     assignedScores: { ...DEFAULT_ABILITY_SCORES, ...(draft.assignedScores || {}) },
     selectedSkillIds: [...(draft.selectedSkillIds || [])],
+    skillRanks: { ...(draft.skillRanks || {}) },
     selectedFeatIds: [...(draft.selectedFeatIds || [])],
     selectedSpellIds: [...(draft.selectedSpellIds || [])],
     selectedItemIds: [...(draft.selectedItemIds || [])]
@@ -909,26 +1014,84 @@ function loadStateFromDraft(draft) {
 
 function renderChat() {
   dom.chatLog.innerHTML = chatMessages
-    .map((entry) => `<div class=\"chat-bubble ${entry.role}\">${entry.text}</div>`)
+    .map((entry) => {
+      const roleClass = entry.role === "assistant" ? "bot" : entry.role === "system" ? "system" : "user";
+      return `<div class="chat-bubble ${roleClass}">${escapeHtml(entry.text)}</div>`;
+    })
     .join("");
   dom.chatLog.scrollTop = dom.chatLog.scrollHeight;
 }
 
-function sendChatMessage() {
+function appendGuideFallbackReply(message, prefix = "") {
+  const ruleset = currentRuleset();
+  const reply = buildChatReply(message, { state, ruleset, derived, issues });
+  chatMessages.push({
+    role: "assistant",
+    text: prefix ? `${prefix}\n\n${reply}` : reply
+  });
+  trimChatMessages();
+  renderChat();
+}
+
+async function sendChatMessage() {
   const message = dom.chatInput.value.trim();
   if (!message) {
     return;
   }
 
   chatMessages.push({ role: "user", text: message });
-  const ruleset = currentRuleset();
-  const reply = buildChatReply(message, { state, ruleset, derived, issues });
-  chatMessages.push({ role: "bot", text: reply });
-  if (chatMessages.length > 50) {
-    chatMessages = chatMessages.slice(chatMessages.length - 50);
-  }
+  trimChatMessages();
   dom.chatInput.value = "";
   renderChat();
+
+  setChatBusy(true);
+  try {
+    await ensureAiCatalog(!aiState.available);
+
+    if (!aiState.available || !aiState.selectedModel) {
+      appendGuideFallbackReply(
+        message,
+        aiState.reason
+          ? `AI autofill is offline right now (${aiState.reason}). This turn used guide mode instead.`
+          : "AI autofill is offline right now, so this turn used guide mode instead."
+      );
+      status("AI autofill is unavailable. Guide mode answered instead.");
+      return;
+    }
+
+    const assistResponse = await requestCharacterAssist({
+      messages: normalizeChatHistory(chatMessages),
+      currentDraft: createAssistDraft(state, DEFAULT_ABILITY_SCORES),
+      activeStep: mapLegacyStepToAiStep(activeStep),
+      model: aiState.selectedModel
+    });
+
+    state = applyAssistPreviewToState(state, assistResponse.previewDraft, DEFAULT_ABILITY_SCORES);
+    syncFormToState();
+    recompute();
+
+    chatMessages.push({
+      role: "assistant",
+      text: buildAssistReplyEnvelope(assistResponse)
+    });
+    trimChatMessages();
+    renderChat();
+
+    if (assistResponse.appliedFields?.length) {
+      status(`AI updated ${assistResponse.appliedFields.length} field(s) using ${assistResponse.modelUsed}.`);
+    } else {
+      status(`AI reviewed the draft with ${assistResponse.modelUsed} and did not change any builder fields.`);
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "Unexpected AI error.";
+    aiState.available = false;
+    aiState.reason = reason;
+    renderChatStatus();
+    appendGuideFallbackReply(message, `AI autofill failed for this turn (${reason}). Guide mode reply:`);
+    status("AI autofill failed. Guide mode answered instead.");
+  } finally {
+    setChatBusy(false);
+  }
 }
 
 function bindEvents() {
@@ -1199,11 +1362,18 @@ function bindEvents() {
     window.print();
   });
 
-  dom.chatSendBtn.addEventListener("click", sendChatMessage);
+  dom.chatModelSelect.addEventListener("change", () => {
+    aiState.selectedModel = dom.chatModelSelect.value;
+    renderChatStatus();
+  });
+
+  dom.chatSendBtn.addEventListener("click", () => {
+    void sendChatMessage();
+  });
   dom.chatInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      sendChatMessage();
+      void sendChatMessage();
     }
   });
 }
@@ -1215,8 +1385,10 @@ function init() {
   bindEvents();
   recompute();
   renderChat();
+  renderChatStatus();
   changeStep(activeStep);
   status("Ready. Configure your ruleset and start building.");
+  void ensureAiCatalog();
 }
 
 init();

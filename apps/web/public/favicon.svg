@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="forge-bg" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#2a2328" />
+      <stop offset="100%" stop-color="#17171d" />
+    </linearGradient>
+    <linearGradient id="forge-accent" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#f17a37" />
+      <stop offset="100%" stop-color="#c45a33" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#forge-bg)" />
+  <path
+    d="M18 17h28v8H27v8h17v8H27v12h-9V17Zm20 0h8v36h-8V17Z"
+    fill="url(#forge-accent)"
+  />
+</svg>

@@ -19,14 +19,14 @@ export function getSavedDrafts() {
 
 export function saveDraft(draft) {
   const drafts = getSavedDrafts();
-  const next = [draft, ...drafts.filter((entry) => entry.id !== draft.id)].slice(0, 40);
+  const next = [draft, ...drafts.filter((entry) => entry.draftId !== draft.draftId)].slice(0, 40);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   return next;
 }
 
 export function deleteDraftById(id) {
   const drafts = getSavedDrafts();
-  const next = drafts.filter((entry) => entry.id !== id);
+  const next = drafts.filter((entry) => entry.draftId !== id);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   return next;
 }

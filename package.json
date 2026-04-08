@@ -1,16 +1,31 @@
 {
-  "name": "dnd-character-creator",
-  "version": "0.1.0",
+  "name": "forge-character",
+  "version": "0.2.0",
   "private": true,
-  "description": "Multi-edition D&D character creator (3.5e, 5e 2014, 5e 2024) with guided and expert flows.",
+  "description": "Guided tabletop RPG character builder with rules-aware validation, exports, and optional local AI assist.",
   "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "start": "node scripts/server.mjs",
-    "dev": "node scripts/server.mjs",
-    "pdf:export": "node scripts/export_parsable_pdf.mjs"
+    "dev": "concurrently -k \"npm:dev:api\" \"npm:dev:web\"",
+    "start:ai": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\start-forge-character-ai.ps1",
+    "dev:web": "npm run dev --workspace @forge/web",
+    "dev:api": "npm run dev --workspace @forge/api",
+    "bundle:static": "npm exec --yes --package esbuild -- esbuild src/main.js --bundle --format=iife --target=es2020 --outfile=src/main.bundle.js",
+    "build": "npm run build --workspace @forge/rules-core && npm run build --workspace @forge/ui && npm run build --workspace @forge/api && npm run build --workspace @forge/web",
+    "typecheck": "npm run typecheck --workspace @forge/rules-core && npm run typecheck --workspace @forge/ui && npm run typecheck --workspace @forge/api && npm run typecheck --workspace @forge/web",
+    "test": "npm run test --workspace @forge/rules-core && npm run test --workspace @forge/api && npm run test --workspace @forge/web && node --test src/legacy-ai.test.js",
+    "db:generate": "npm run db:generate --workspace @forge/api",
+    "pdf:export": "npm run pdf:export --workspace @forge/rules-core --"
   },
   "engines": {
-    "node": ">=20"
+    "node": "^20.19.0 || >=22.12.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "@rolldown/binding-win32-x64-msvc": "^1.0.0-rc.9"
+  }
 }

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Forge Character | Multi-Edition D&D Character Creator</title>
+    <title>Forge Character | Guided TTRPG Character Builder</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -11,11 +11,17 @@
     <div class="app-shell">
       <header class="app-header">
         <div>
-          <p class="eyebrow">SRD Character Builder</p>
+          <p class="eyebrow">Guided Character Builder</p>
           <h1>Forge Character</h1>
           <p class="subtitle">
-            Build complete D&D characters for 3.5e, 5e (2014), and 5e (2024) with guided and expert flows.
+            Build a fantasy character through a clear four-step flow with rules-aware validation, live sheet updates, exports, and optional Ollama-powered autofill.
           </p>
+          <div class="hero-highlights" aria-label="Product highlights">
+            <span class="hero-highlight">4-step guided flow</span>
+            <span class="hero-highlight">5e and 3.5 SRD rulesets</span>
+            <span class="hero-highlight">Live validation and character sheet</span>
+            <span class="hero-highlight">Optional local AI assist</span>
+          </div>
         </div>
         <div class="header-actions">
           <button id="useInGameBtn" class="btn" type="button">Use In Game Session</button>
@@ -214,13 +220,27 @@
           </section>
 
           <section class="chat-panel">
-            <h3>Guide Chat (Optional)</h3>
-            <p class="helper">Ask rules or build questions. Replies are deterministic and based on the selected ruleset.</p>
+            <div class="chat-panel-header">
+              <div>
+                <h3>AI Build Your Character</h3>
+                <p class="helper">Describe the character you want in plain English and the assistant will fill the builder. If Ollama is offline, this falls back to guide mode instead of blocking the workflow.</p>
+              </div>
+              <div class="chat-toolbar">
+                <span id="chatModePill" class="chat-status-pill chat-status-pill--checking">Checking AI...</span>
+                <label class="field compact-field">
+                  <span>Model</span>
+                  <select id="chatModelSelect">
+                    <option value="">Checking Ollama...</option>
+                  </select>
+                </label>
+              </div>
+            </div>
             <div id="chatLog" class="chat-log" aria-live="polite"></div>
             <div class="chat-input-row">
-              <input id="chatInput" type="text" placeholder="Example: Recommend a beginner class" />
+              <input id="chatInput" type="text" placeholder="Example: Make me a level 3 dwarven cleric named Aria" />
               <button id="chatSendBtn" class="btn" type="button">Send</button>
             </div>
+            <p id="chatStatusNote" class="helper chat-status-note">Checking the local API and Ollama availability.</p>
           </section>
 
           <section class="license-panel">
@@ -238,6 +258,25 @@
       </label>
     </template>
 
-    <script type="module" src="./src/main.js"></script>
+    <script>
+      (function loadForgeCharacterApp() {
+        var bootstrap = document.createElement("script");
+        if (window.location.protocol === "file:") {
+          bootstrap.src = "./src/main.bundle.js";
+        } else {
+          bootstrap.type = "module";
+          bootstrap.src = "./src/main.js";
+        }
+        bootstrap.onerror = function () {
+          var statusNode = document.querySelector("#statusMessage");
+          if (!statusNode) {
+            return;
+          }
+          statusNode.textContent =
+            "App startup failed. Rebuild src/main.bundle.js with npm.cmd run bundle:static, or open launcher.html for stack diagnostics.";
+        };
+        document.body.appendChild(bootstrap);
+      })();
+    </script>
   </body>
 </html>
