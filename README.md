@@ -89,34 +89,53 @@ This split lets the repo show both workflow-first product design and a realistic
 Requirements:
 
 - Node.js `20.19+` or `22.12+`
-- Windows PowerShell with `npm.cmd`
+- Windows PowerShell with `npm.cmd`, or macOS Tahoe 26 with Terminal
 
-Install dependencies manually if you are not using the launcher:
-
-```bash
-npm.cmd install
-```
-
-Recommended launch:
+Recommended launch on Windows:
 
 ```bash
 ./START_FORGE_CHARACTER_AI.cmd
 ```
 
-The launcher is the intended one-click path on Windows. It checks Node/npm, creates `.env` from `.env.example` if needed, installs stale or missing npm dependencies, rebuilds shared packages, regenerates the `file://` static bundle, starts the API and React dev app, probes `/health` and `/ready`, checks Ollama/model availability for optional AI autofill, writes logs under `logs/`, then opens `index.html`.
+Recommended launch on macOS:
 
-PowerShell-safe alternative:
+```bash
+./START_FORGE_CHARACTER_MAC.command
+```
+
+The one-click launchers check Node/npm, create `.env` from `.env.example` if needed, install stale or missing npm dependencies, rebuild shared packages, regenerate the `file://` static bundle, start the API and React dev app, probe `/health` and `/ready`, check Ollama/model availability for optional AI autofill, write logs under `logs/`, then open `index.html`.
+
+PowerShell-safe Windows alternative:
 
 ```bash
 npm.cmd run start:ai
 ```
 
+macOS Terminal alternative:
+
+```bash
+npm run start:ai:mac
+```
+
+If macOS blocks a downloaded `.command` file, run these once from the repo folder:
+
+```bash
+chmod +x START_FORGE_CHARACTER_MAC.command start-forge-character-mac.sh
+xattr -dr com.apple.quarantine .
+```
+
+Manual dependency install if you are not using a launcher:
+
+```bash
+npm install
+```
+
 Manual split-mode commands:
 
 ```bash
-npm.cmd run dev
-npm.cmd run dev:web
-npm.cmd run dev:api
+npm run dev
+npm run dev:web
+npm run dev:api
 ```
 
 Primary local paths:
@@ -129,7 +148,7 @@ Primary local paths:
 If you edit the root builder source, refresh the checked-in `file://` bundle:
 
 ```bash
-npm.cmd run bundle:static
+npm run bundle:static
 ```
 
 ## Sample And Demo Content
@@ -162,6 +181,7 @@ The API defaults to in-memory storage, so no database setup is required for a de
 - [60-second demo script](docs/DEMO-SCRIPT.md)
 - [Resume, LinkedIn, and interview bullets](docs/RESUME-BULLETS.md)
 - [Publish checklist and GitHub metadata](docs/publish-steps.md)
+- [Mac setup and one-click launcher notes](docs/MAC-SETUP.md)
 
 ## Content Scope
 

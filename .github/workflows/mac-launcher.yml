@@ -1,0 +1,44 @@
+name: Mac launcher
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  macos-smoke:
+    name: macOS one-click path smoke
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Mac launcher syntax
+        run: bash -n ./start-forge-character-mac.sh
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Bundle static root builder
+        run: npm run bundle:static
+
+      - name: Smoke Mac launcher without browser or Ollama install
+        run: bash ./start-forge-character-mac.sh --ci --no-browser --skip-ollama-install --skip-model-pull

@@ -65,24 +65,33 @@
             <h2>Expected Launch Path</h2>
           </div>
           <p class="helper">
-            Double-click <code>START_FORGE_CHARACTER_AI.cmd</code> for the intended Windows flow. It checks Node/npm, installs missing npm dependencies, creates local env defaults, rebuilds required artifacts, starts the local stack, checks Ollama/model readiness for optional AI autofill, writes logs, then opens the guided builder at <code>index.html</code>.
+            Double-click <code>START_FORGE_CHARACTER_AI.cmd</code> on Windows or <code>START_FORGE_CHARACTER_MAC.command</code> on macOS. Each launcher checks Node/npm, installs missing npm dependencies, creates local env defaults, rebuilds required artifacts, starts the local stack, checks Ollama/model readiness for optional AI autofill, writes logs, then opens the guided builder at <code>index.html</code>.
           </p>
           <div class="command-block">
             <span>One-click Windows launcher</span>
             <code>./START_FORGE_CHARACTER_AI.cmd</code>
           </div>
           <div class="command-block">
+            <span>One-click Mac launcher</span>
+            <code>./START_FORGE_CHARACTER_MAC.command</code>
+          </div>
+          <div class="command-block">
             <span>PowerShell launcher</span>
             <code>npm.cmd run start:ai</code>
           </div>
           <div class="command-block">
+            <span>Mac Terminal launcher</span>
+            <code>npm run start:ai:mac</code>
+          </div>
+          <div class="command-block">
             <span>Manual dev stack</span>
-            <code>npm.cmd run dev</code>
+            <code>npm run dev</code>
           </div>
           <ul class="helper-list">
             <li>The main builder is the guided root UI at <code>index.html</code>.</li>
             <li>Launcher logs are written to <code>logs/</code> with install, build, bundle, Ollama, and dev-server output.</li>
             <li>If the API is healthy but AI is unavailable, the chat falls back to guide mode until Ollama is ready.</li>
+            <li>If macOS blocks a downloaded command file, run <code>chmod +x START_FORGE_CHARACTER_MAC.command start-forge-character-mac.sh</code> from the repo folder.</li>
             <li>The React app at <code>http://localhost:5173</code> still exists as a secondary architecture path.</li>
           </ul>
         </aside>
@@ -95,12 +104,20 @@
         </div>
         <div class="troubleshooting-grid">
           <div class="command-block">
-            <span>Port ownership</span>
+            <span>Windows port ownership</span>
             <code>Get-NetTCPConnection -LocalPort 5173,8787 -State Listen</code>
+          </div>
+          <div class="command-block">
+            <span>Mac port ownership</span>
+            <code>lsof -nP -iTCP:5173 -sTCP:LISTEN</code>
           </div>
           <div class="command-block">
             <span>API health</span>
             <code>Invoke-RestMethod http://localhost:8787/health | ConvertTo-Json -Depth 6</code>
+          </div>
+          <div class="command-block">
+            <span>Mac API health</span>
+            <code>curl http://localhost:8787/health</code>
           </div>
           <div class="command-block">
             <span>Ollama models</span>

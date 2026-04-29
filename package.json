@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "concurrently -k \"npm:dev:api\" \"npm:dev:web\"",
     "start:ai": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\start-forge-character-ai.ps1",
+    "start:ai:mac": "bash ./start-forge-character-mac.sh",
     "dev:web": "npm run dev --workspace @forge/web",
     "dev:api": "npm run dev --workspace @forge/api",
     "bundle:static": "npm exec --yes --package esbuild -- esbuild src/main.js --bundle --format=iife --target=es2020 --outfile=src/main.bundle.js",
@@ -26,7 +27,6 @@
   },
   "license": "MIT",
   "devDependencies": {
-    "concurrently": "^9.2.1",
-    "@rolldown/binding-win32-x64-msvc": "^1.0.0-rc.9"
+    "concurrently": "^9.2.1"
   }
 }

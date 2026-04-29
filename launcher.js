@@ -162,7 +162,7 @@
       "Waiting on API",
       "AI availability depends on the local API, so Ollama cannot be confirmed until port 8787 is healthy."
     );
-    setOverallState("warning", "The guided builder still opens, but AI autofill is offline.", "Start the local API with START_FORGE_CHARACTER_AI.cmd or npm.cmd run start:ai if you want the chat panel to fill fields automatically.");
+    setOverallState("warning", "The guided builder still opens, but AI autofill is offline.", "Start the local API with START_FORGE_CHARACTER_AI.cmd on Windows, START_FORGE_CHARACTER_MAC.command on macOS, or the matching npm launcher if you want the chat panel to fill fields automatically.");
   }
 
   function refreshStatus() {
