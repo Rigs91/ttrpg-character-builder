@@ -24,4 +24,4 @@ apps/api/.env.*
 apps/web/.env
 apps/web/.env.*
 
-data/
+/data/
