@@ -12,14 +12,17 @@ import {
   type ContentPackVersionRecord,
   type SessionCreateInput,
   type SessionImportCreateInput,
+  type SessionImportReviewInput,
   type SessionImportRecord,
   type SessionImportResult,
   type SessionRecord,
+  type SessionSeatCreateInput,
   type SessionSeatRecord,
+  type SessionStatusUpdateInput,
   type UserRecord,
   type UserRefInput
 } from "../contracts.js";
-import type { ForgeRepository } from "./types.js";
+import type { CharacterListOptions, ForgeRepository } from "./types.js";
 
 const characterInclude = {
   owner: true,
@@ -246,6 +249,31 @@ export class PrismaForgeRepository implements ForgeRepository {
     return mapContentPackVersion(contentPackVersion)!;
   }
 
+  async listCharacters(options: CharacterListOptions = {}): Promise<CharacterRecord[]> {
+    const search = options.search?.trim();
+    const characters = await this.client.character.findMany({
+      where: {
+        rulesetId: options.rulesetId || undefined,
+        ...(search
+          ? {
+              OR: [
+                { name: { contains: search, mode: "insensitive" as const } },
+                { notes: { contains: search, mode: "insensitive" as const } },
+                { owner: { name: { contains: search, mode: "insensitive" as const } } }
+              ]
+            }
+          : {})
+      },
+      orderBy: {
+        updatedAt: "desc"
+      },
+      take: Math.max(1, Math.min(options.limit ?? 50, 100)),
+      include: characterInclude
+    });
+
+    return characters.map(mapCharacter);
+  }
+
   async createCharacter(
     input: CharacterCreateInput["character"],
     owner: UserRecord | null,
@@ -349,6 +377,35 @@ export class PrismaForgeRepository implements ForgeRepository {
     return character ? mapCharacter(character) : null;
   }
 
+  async restoreCharacterRevision(characterId: string, revisionId: string, reason?: string): Promise<CharacterRecord | null> {
+    const revision = await this.client.characterRevision.findUnique({
+      where: { id: revisionId }
+    });
+    if (!revision || revision.characterId !== characterId) {
+      return null;
+    }
+
+    return this.createCharacterRevision(characterId, {
+      reason: reason ?? `Restored revision #${revision.revisionNumber}`,
+      snapshot: {
+        state: revision.state,
+        derived: revision.derived ?? undefined,
+        issues: (Array.isArray(revision.issues) ? revision.issues : []) as CharacterRevisionCreateInput["snapshot"]["issues"]
+      }
+    });
+  }
+
+  async deleteCharacter(characterId: string): Promise<boolean> {
+    try {
+      await this.client.character.delete({
+        where: { id: characterId }
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async createSession(input: SessionCreateInput, owner: UserRecord | null): Promise<SessionRecord> {
     const requestedSeats = [...input.seats];
     if (owner && !requestedSeats.some((seat) => seat.role === "DM")) {
@@ -397,6 +454,55 @@ export class PrismaForgeRepository implements ForgeRepository {
     return session ? mapSession(session) : null;
   }
 
+  async getSessionByJoinCode(joinCode: string): Promise<SessionRecord | null> {
+    const session = await this.client.session.findUnique({
+      where: { joinCode: joinCode.trim().toUpperCase() },
+      include: sessionInclude
+    });
+
+    return session ? mapSession(session) : null;
+  }
+
+  async updateSessionStatus(sessionId: string, input: SessionStatusUpdateInput): Promise<SessionRecord | null> {
+    try {
+      const session = await this.client.session.update({
+        where: { id: sessionId },
+        data: {
+          status: input.status
+        },
+        include: sessionInclude
+      });
+      return mapSession(session);
+    } catch {
+      return null;
+    }
+  }
+
+  async createSessionSeat(sessionId: string, input: SessionSeatCreateInput, user: UserRecord | null): Promise<SessionRecord | null> {
+    const session = await this.client.$transaction(async (tx: any) => {
+      const existing = await tx.session.findUnique({ where: { id: sessionId } });
+      if (!existing) {
+        return null;
+      }
+
+      await tx.sessionSeat.create({
+        data: {
+          sessionId,
+          displayName: input.displayName,
+          role: input.role,
+          userId: user?.id
+        }
+      });
+
+      return tx.session.findUnique({
+        where: { id: sessionId },
+        include: sessionInclude
+      });
+    });
+
+    return session ? mapSession(session) : null;
+  }
+
   async createSessionImport(
     sessionId: string,
     input: SessionImportCreateInput,
@@ -437,6 +543,51 @@ export class PrismaForgeRepository implements ForgeRepository {
 
     const session = mapSession(result.session);
     const sessionImport = session.imports.find((entry) => entry.id === result.sessionImportId);
+    if (!sessionImport) {
+      return null;
+    }
+
+    return {
+      session,
+      sessionImport
+    };
+  }
+
+  async updateSessionImportStatus(
+    sessionId: string,
+    importId: string,
+    input: SessionImportReviewInput
+  ): Promise<SessionImportResult | null> {
+    const result = await this.client.$transaction(async (tx: any) => {
+      const existing = await tx.sessionImport.findUnique({
+        where: { id: importId }
+      });
+      if (!existing || existing.sessionId !== sessionId) {
+        return null;
+      }
+
+      await tx.sessionImport.update({
+        where: { id: importId },
+        data: {
+          status: input.status,
+          note: input.note ?? undefined
+        }
+      });
+
+      const session = await tx.session.findUnique({
+        where: { id: sessionId },
+        include: sessionInclude
+      });
+
+      return session;
+    });
+
+    if (!result) {
+      return null;
+    }
+
+    const session = mapSession(result);
+    const sessionImport = session.imports.find((entry) => entry.id === importId);
     if (!sessionImport) {
       return null;
     }

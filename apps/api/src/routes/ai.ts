@@ -5,8 +5,9 @@ import { AiServiceError } from "../ai/errors.js";
 import type { CharacterAiService } from "../ai/characterAssistService.js";
 
 export async function registerAiRoutes(app: FastifyInstance, aiService: CharacterAiService): Promise<void> {
-  app.get("/api/ai/models", async () => {
-    const catalog = await aiService.getModelCatalog();
+  app.get("/api/ai/models", async (request) => {
+    const query = request.query as { refresh?: string };
+    const catalog = await aiService.getModelCatalog({ forceRefresh: query.refresh === "true" });
     return catalog satisfies AiModelCatalogResponse;
   });
 
@@ -17,8 +18,11 @@ export async function registerAiRoutes(app: FastifyInstance, aiService: Characte
     } catch (error) {
       if (error instanceof AiServiceError) {
         return reply.code(error.statusCode).send({
-          code: error.code,
-          message: error.message
+          error: {
+            code: error.code,
+            message: error.message,
+            requestId: request.id
+          }
         });
       }
       throw error;

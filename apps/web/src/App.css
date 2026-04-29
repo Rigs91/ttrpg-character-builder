@@ -80,7 +80,8 @@
 .app-chip-grid,
 .app-card-actions,
 .app-action-row,
-.app-ai-toolbar {
+.app-ai-toolbar,
+.app-row-actions {
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
@@ -91,6 +92,10 @@
   justify-content: flex-start;
 }
 
+.app-row-actions {
+  justify-content: flex-end;
+}
+
 .app-card-actions {
   margin-top: 1rem;
 }
@@ -98,10 +103,81 @@
 .app-scroll-list,
 .app-mini-list,
 .app-ai-thread,
-.app-question-list {
+.app-question-list,
+.app-checklist {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.app-readiness {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.35fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.app-checklist {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.app-checklist__item {
+  border: 1px solid var(--forge-line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--forge-text);
+  padding: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-checklist__item span,
+.app-checklist__item small {
+  display: block;
+}
+
+.app-checklist__item small {
+  color: var(--forge-text-muted);
+  margin-top: 0.25rem;
+}
+
+.app-checklist__item--complete {
+  border-color: rgba(99, 170, 118, 0.45);
+}
+
+.app-checklist__item--attention {
+  border-color: rgba(208, 160, 77, 0.48);
+}
+
+.app-checklist__item--blocked {
+  border-color: rgba(199, 91, 87, 0.52);
+}
+
+.app-filter-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(140px, 0.45fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.app-toggle-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  color: var(--forge-text-soft);
+  min-height: 2.75rem;
+}
+
+.app-selected-tray {
+  border: 1px solid rgba(225, 139, 66, 0.22);
+  border-radius: 14px;
+  background: rgba(225, 139, 66, 0.07);
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  text-align: left;
 }
 
 .app-scroll-list {
@@ -272,8 +348,26 @@
   text-align: left;
 }
 
+.app-api-message {
+  border: 1px solid rgba(99, 170, 118, 0.28);
+  border-radius: 12px;
+  background: rgba(99, 170, 118, 0.09);
+  color: var(--forge-text-soft);
+  padding: 0.75rem 0.9rem;
+  text-align: left;
+}
+
 @media (max-width: 900px) {
   .app-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .app-readiness,
+  .app-filter-row {
+    grid-template-columns: 1fr;
+  }
+
+  .app-row-actions {
+    justify-content: flex-start;
   }
 }

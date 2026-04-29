@@ -1,10 +1,15 @@
 import type { CharacterIssue } from "@forge/rules-core";
-import { Badge, Card } from "@forge/ui";
+import { Badge, Button, Card } from "@forge/ui";
+
+type DisplayIssue = CharacterIssue & {
+  actionLabel?: string;
+};
 
 type IssueListProps = {
-  issues: CharacterIssue[];
+  issues: DisplayIssue[];
   title?: string;
   emptyLabel?: string;
+  onIssueSelect?: (issue: DisplayIssue) => void;
 };
 
 function toneForIssue(severity: CharacterIssue["severity"]) {
@@ -17,7 +22,7 @@ function toneForIssue(severity: CharacterIssue["severity"]) {
   return "accent" as const;
 }
 
-export function IssueList({ issues, title = "Validation", emptyLabel = "No issues in this section." }: IssueListProps) {
+export function IssueList({ issues, title = "Validation", emptyLabel = "No issues in this section.", onIssueSelect }: IssueListProps) {
   return (
     <Card
       title={title}
@@ -33,6 +38,11 @@ export function IssueList({ issues, title = "Validation", emptyLabel = "No issue
                 <Badge tone={toneForIssue(issue.severity)}>{issue.severity}</Badge>
               </div>
               <p>{issue.message}</p>
+              {onIssueSelect ? (
+                <Button size="sm" onClick={() => onIssueSelect(issue)}>
+                  {issue.actionLabel || "Go to field"}
+                </Button>
+              ) : null}
             </div>
           ))
         ) : (

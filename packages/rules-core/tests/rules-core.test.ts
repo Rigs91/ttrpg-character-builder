@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildParsableCharacterLines, createDefaultDraft, deriveCharacter, parseCharacterDraftJson, synthesizeCharacterAssist, validateCharacter } from "../src/index.js";
+import { buildParsableCharacterLines, buildRulesPreview, createDefaultDraft, deriveCharacter, parseCharacterDraftJson, synthesizeCharacterAssist, validateCharacter } from "../src/index.js";
 
 describe("rules core", () => {
   it("rejects illegal class spell choices", () => {
@@ -46,6 +46,30 @@ describe("rules core", () => {
 
     expect(lines.some((line) => line.includes("@@JSON_START@@"))).toBe(true);
     expect(lines.some((line) => line.includes("character_name=Exporter"))).toBe(true);
+  });
+
+  it("builds rules previews with step-linked next actions", () => {
+    const draft = createDefaultDraft("5e-2024");
+    draft.classId = "5e24-class-cleric";
+
+    const preview = buildRulesPreview(draft);
+
+    expect(preview.playability).toBe("blocked");
+    expect(preview.nextAction.stepId).toBe("identity");
+    expect(preview.issues.some((issue) => issue.stepId === "identity" && issue.actionLabel)).toBe(true);
+    expect(preview.completion.some((step) => step.stepId === "gear" && step.status === "attention")).toBe(true);
+    expect(preview.contentPack.rulesetId).toBe("5e-2024");
+  });
+
+  it("normalizes partial class changes without carrying an invalid default subclass", () => {
+    const imported = parseCharacterDraftJson(JSON.stringify({
+      rulesetId: "5e-2024",
+      classId: "5e24-class-cleric"
+    }));
+
+    expect(imported.classId).toBe("5e24-class-cleric");
+    expect(imported.subclassId.startsWith("5e24-subclass-cleric")).toBe(true);
+    expect(validateCharacter(imported).issues.some((issue) => issue.code === "character.subclass.invalid")).toBe(false);
   });
 
   it("fills a partial identity prompt into a legal preview draft", () => {

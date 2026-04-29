@@ -10,14 +10,17 @@ import {
   type ContentPackVersionRecord,
   type SessionCreateInput,
   type SessionImportCreateInput,
+  type SessionImportReviewInput,
   type SessionImportRecord,
   type SessionImportResult,
   type SessionRecord,
+  type SessionSeatCreateInput,
   type SessionSeatRecord,
+  type SessionStatusUpdateInput,
   type UserRecord,
   type UserRefInput
 } from "../contracts.js";
-import type { ForgeRepository } from "./types.js";
+import type { CharacterListOptions, ForgeRepository } from "./types.js";
 
 type CharacterStored = Omit<CharacterRecord, "latestRevision" | "revisions"> & {
   revisionIds: string[];
@@ -99,6 +102,23 @@ export class InMemoryForgeRepository implements ForgeRepository {
     };
     this.contentPackVersions.set(contentPackVersion.id, contentPackVersion);
     return clone(contentPackVersion);
+  }
+
+  async listCharacters(options: CharacterListOptions = {}): Promise<CharacterRecord[]> {
+    const search = options.search?.trim().toLowerCase();
+    const limit = Math.max(1, Math.min(options.limit ?? 50, 100));
+
+    return [...this.characters.values()]
+      .filter((character) => !options.rulesetId || character.rulesetId === options.rulesetId)
+      .filter((character) => {
+        if (!search) {
+          return true;
+        }
+        return `${character.name} ${character.notes ?? ""} ${character.owner?.name ?? ""}`.toLowerCase().includes(search);
+      })
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .slice(0, limit)
+      .map((character) => this.requireCharacter(character.id));
   }
 
   async createCharacter(
@@ -189,6 +209,35 @@ export class InMemoryForgeRepository implements ForgeRepository {
     return this.requireCharacter(characterId);
   }
 
+  async restoreCharacterRevision(characterId: string, revisionId: string, reason?: string): Promise<CharacterRecord | null> {
+    const revision = this.characterRevisions.get(revisionId);
+    if (!revision || revision.characterId !== characterId) {
+      return null;
+    }
+
+    return this.createCharacterRevision(characterId, {
+      reason: reason ?? `Restored revision #${revision.revisionNumber}`,
+      snapshot: {
+        state: clone(revision.state),
+        derived: revision.derived == null ? undefined : clone(revision.derived),
+        issues: clone(revision.issues)
+      }
+    });
+  }
+
+  async deleteCharacter(characterId: string): Promise<boolean> {
+    const character = this.characters.get(characterId);
+    if (!character) {
+      return false;
+    }
+
+    for (const revisionId of character.revisionIds) {
+      this.characterRevisions.delete(revisionId);
+    }
+    this.characters.delete(characterId);
+    return true;
+  }
+
   async createSession(input: SessionCreateInput, owner: UserRecord | null): Promise<SessionRecord> {
     const timestamp = nowIso();
     let joinCode = makeJoinCode();
@@ -240,6 +289,45 @@ export class InMemoryForgeRepository implements ForgeRepository {
     return this.requireSession(id);
   }
 
+  async getSessionByJoinCode(joinCode: string): Promise<SessionRecord | null> {
+    const normalized = joinCode.trim().toUpperCase();
+    const session = [...this.sessions.values()].find((entry) => entry.joinCode === normalized);
+    return session ? this.requireSession(session.id) : null;
+  }
+
+  async updateSessionStatus(sessionId: string, input: SessionStatusUpdateInput): Promise<SessionRecord | null> {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return null;
+    }
+
+    session.status = input.status;
+    session.updatedAt = nowIso();
+    return this.requireSession(sessionId);
+  }
+
+  async createSessionSeat(sessionId: string, input: SessionSeatCreateInput, user: UserRecord | null): Promise<SessionRecord | null> {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return null;
+    }
+
+    const timestamp = nowIso();
+    const seat: SessionSeatRecord = {
+      id: randomUUID(),
+      user: user ? clone(user) : null,
+      displayName: input.displayName,
+      role: input.role,
+      joinedAt: timestamp,
+      updatedAt: timestamp
+    };
+    this.sessionSeats.set(seat.id, seat);
+    session.seatIds.push(seat.id);
+    session.updatedAt = timestamp;
+
+    return this.requireSession(sessionId);
+  }
+
   async createSessionImport(
     sessionId: string,
     input: SessionImportCreateInput,
@@ -271,6 +359,35 @@ export class InMemoryForgeRepository implements ForgeRepository {
 
     const aggregateSession = this.requireSession(sessionId);
     const aggregateImport = aggregateSession.imports.find((entry) => entry.id === sessionImport.id);
+    if (!aggregateImport) {
+      return null;
+    }
+
+    return {
+      session: aggregateSession,
+      sessionImport: aggregateImport
+    };
+  }
+
+  async updateSessionImportStatus(
+    sessionId: string,
+    importId: string,
+    input: SessionImportReviewInput
+  ): Promise<SessionImportResult | null> {
+    const session = this.sessions.get(sessionId);
+    const sessionImport = this.sessionImports.get(importId);
+    if (!session || !sessionImport || sessionImport.sessionId !== sessionId) {
+      return null;
+    }
+
+    const timestamp = nowIso();
+    sessionImport.status = input.status;
+    sessionImport.note = input.note ?? sessionImport.note;
+    sessionImport.updatedAt = timestamp;
+    session.updatedAt = timestamp;
+
+    const aggregateSession = this.requireSession(sessionId);
+    const aggregateImport = aggregateSession.imports.find((entry) => entry.id === importId);
     if (!aggregateImport) {
       return null;
     }

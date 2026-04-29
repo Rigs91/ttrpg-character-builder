@@ -20,6 +20,12 @@ const STEP_LABELS: Record<BuilderStepId, string> = {
   review: "Review"
 };
 
+const PROMPT_STARTERS = [
+  "Make me a level 3 dwarven cleric focused on defense and healing.",
+  "Turn this into a stealthy scout with practical dungeon gear.",
+  "Suggest legal spells for the current class and level."
+];
+
 type AiAssistantPanelProps = {
   draft: CharacterDraft;
   activeStep: BuilderStepId;
@@ -41,11 +47,12 @@ export function AiAssistantPanel({ draft, activeStep, onApplyPreview }: AiAssist
   const [draftPrompt, setDraftPrompt] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [pendingResponse, setPendingResponse] = useState<CharacterAssistResponse | null>(null);
+  const [lastAppliedSummary, setLastAppliedSummary] = useState("");
 
-  useEffect(() => {
+  function loadCatalog(refresh = false) {
     let cancelled = false;
     setLoadingCatalog(true);
-    getAiModels()
+    getAiModels(refresh)
       .then((response) => {
         if (cancelled) {
           return;
@@ -70,6 +77,13 @@ export function AiAssistantPanel({ draft, activeStep, onApplyPreview }: AiAssist
 
     return () => {
       cancelled = true;
+    };
+  }
+
+  useEffect(() => {
+    const cancel = loadCatalog();
+    return () => {
+      cancel();
     };
   }, []);
 
@@ -123,6 +137,11 @@ export function AiAssistantPanel({ draft, activeStep, onApplyPreview }: AiAssist
       return;
     }
     onApplyPreview(pendingResponse.previewDraft);
+    setLastAppliedSummary(
+      pendingResponse.appliedFields.length
+        ? `Applied ${pendingResponse.appliedFields.length} field update${pendingResponse.appliedFields.length === 1 ? "" : "s"} from ${pendingResponse.modelUsed}. Use the global Undo button if you want to revert.`
+        : `Applied preview from ${pendingResponse.modelUsed}. Use the global Undo button if you want to revert.`
+    );
     setPendingResponse(null);
   }
 
@@ -153,10 +172,14 @@ export function AiAssistantPanel({ draft, activeStep, onApplyPreview }: AiAssist
             <Badge tone={aiStatusTone}>{aiStatusLabel}</Badge>
             <Badge>{`${STEP_LABELS[activeStep]} step`}</Badge>
             {catalog?.defaultModel ? <Badge tone="accent">{`Default ${catalog.defaultModel}`}</Badge> : null}
+            {catalog?.models.length ? <Badge>{`${catalog.models.length} local model${catalog.models.length === 1 ? "" : "s"}`}</Badge> : null}
           </div>
-          <Button size="sm" onClick={() => setCollapsed((current) => !current)}>
-            {collapsed ? "Expand agent" : "Collapse agent"}
-          </Button>
+          <div className="app-row-actions">
+            <Button size="sm" disabled={loadingCatalog} onClick={() => loadCatalog(true)}>Refresh models</Button>
+            <Button size="sm" onClick={() => setCollapsed((current) => !current)}>
+              {collapsed ? "Expand agent" : "Collapse agent"}
+            </Button>
+          </div>
         </div>
 
         {!collapsed ? (
@@ -201,6 +224,12 @@ export function AiAssistantPanel({ draft, activeStep, onApplyPreview }: AiAssist
               />
             </label>
 
+            <div className="app-chip-grid" aria-label="AI prompt starters">
+              {PROMPT_STARTERS.map((starter) => (
+                <Chip key={starter} quiet onClick={() => setDraftPrompt(starter)}>{starter}</Chip>
+              ))}
+            </div>
+
             <div className="app-action-row">
               <Button tone="primary" disabled={sending || !draftPrompt.trim() || !catalog?.available} onClick={handleSendPrompt}>
                 {sending ? "Generating preview..." : "Generate reviewable draft"}
@@ -209,6 +238,7 @@ export function AiAssistantPanel({ draft, activeStep, onApplyPreview }: AiAssist
             </div>
 
             {errorMessage ? <p className="app-error-text">{errorMessage}</p> : null}
+            {lastAppliedSummary ? <p className="app-api-message">{lastAppliedSummary}</p> : null}
 
             {pendingResponse ? (
               <div className="app-stack">

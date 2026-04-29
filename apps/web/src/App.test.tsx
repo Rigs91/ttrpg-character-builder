@@ -46,8 +46,10 @@ describe("App", () => {
       expect(screen.getByText("AI ready")).toBeTruthy();
     });
 
-    expect(screen.getByRole("heading", { name: "AI-Assisted Player Builder and DM Session Hub" })).toBeTruthy();
-    expect(screen.getByText("Forge Character AI")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Forge Character Workspace" })).toBeTruthy();
+    expect(screen.getByText("Guided TTRPG Character Builder")).toBeTruthy();
+    expect(screen.getByText("Build readiness")).toBeTruthy();
+    expect(screen.getByText("Next best action")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Ruleset/ })).toBeTruthy();
     expect(screen.getByText("Current step diagnostics")).toBeTruthy();
     expect(screen.getByText("AI Draft Agent")).toBeTruthy();
@@ -128,6 +130,12 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(screen.getByDisplayValue("Aria")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Undo Applied AI draft preview" }));
+
+    await waitFor(() => {
+      expect(screen.queryByDisplayValue("Aria")).toBeNull();
     });
   });
 });

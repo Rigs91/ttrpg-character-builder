@@ -65,7 +65,7 @@
             <h2>Expected Launch Path</h2>
           </div>
           <p class="helper">
-            Double-click <code>START_FORGE_CHARACTER_AI.cmd</code> for the intended Windows flow. It starts the local stack, then opens the guided builder at <code>index.html</code>.
+            Double-click <code>START_FORGE_CHARACTER_AI.cmd</code> for the intended Windows flow. It checks Node/npm, installs missing npm dependencies, creates local env defaults, rebuilds required artifacts, starts the local stack, checks Ollama/model readiness for optional AI autofill, writes logs, then opens the guided builder at <code>index.html</code>.
           </p>
           <div class="command-block">
             <span>One-click Windows launcher</span>
@@ -81,6 +81,7 @@
           </div>
           <ul class="helper-list">
             <li>The main builder is the guided root UI at <code>index.html</code>.</li>
+            <li>Launcher logs are written to <code>logs/</code> with install, build, bundle, Ollama, and dev-server output.</li>
             <li>If the API is healthy but AI is unavailable, the chat falls back to guide mode until Ollama is ready.</li>
             <li>The React app at <code>http://localhost:5173</code> still exists as a secondary architecture path.</li>
           </ul>

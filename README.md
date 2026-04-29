@@ -91,7 +91,7 @@ Requirements:
 - Node.js `20.19+` or `22.12+`
 - Windows PowerShell with `npm.cmd`
 
-Install dependencies:
+Install dependencies manually if you are not using the launcher:
 
 ```bash
 npm.cmd install
@@ -102,6 +102,8 @@ Recommended launch:
 ```bash
 ./START_FORGE_CHARACTER_AI.cmd
 ```
+
+The launcher is the intended one-click path on Windows. It checks Node/npm, creates `.env` from `.env.example` if needed, installs stale or missing npm dependencies, rebuilds shared packages, regenerates the `file://` static bundle, starts the API and React dev app, probes `/health` and `/ready`, checks Ollama/model availability for optional AI autofill, writes logs under `logs/`, then opens `index.html`.
 
 PowerShell-safe alternative:
 

@@ -7,4 +7,5 @@ export * from "./engine/rulesEngine.js";
 export * from "./engine/validators.js";
 export * from "./export/characterExport.js";
 export * from "./export/pdfBuilder.js";
+export * from "./guidance/rulesPreview.js";
 export * from "./io/draftIO.js";

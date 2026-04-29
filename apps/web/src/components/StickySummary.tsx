@@ -26,7 +26,7 @@ export function StickySummary({ derived, issues, savedLabel }: StickySummaryProp
       <Card
         eyebrow="Live Summary"
         title={derived?.className ? `${derived.className} snapshot` : "Draft snapshot"}
-        detail={derived ? `${derived.rulesetName} • Level ${derived.level}` : "Pick a ruleset to start deriving stats."}
+        detail={derived ? `${derived.rulesetName} / Level ${derived.level}` : "Pick a ruleset to start deriving stats."}
         tone="highlight"
       >
         <div className="app-summary-grid">
@@ -40,11 +40,11 @@ export function StickySummary({ derived, issues, savedLabel }: StickySummaryProp
           </div>
           <div>
             <span className="app-muted">HP / AC</span>
-            <strong>{derived ? `${derived.hitPoints} / ${derived.armorClass}` : "—"}</strong>
+            <strong>{derived ? `${derived.hitPoints} / ${derived.armorClass}` : "-"}</strong>
           </div>
           <div>
             <span className="app-muted">Initiative</span>
-            <strong>{derived ? `${derived.initiative >= 0 ? "+" : ""}${derived.initiative}` : "—"}</strong>
+            <strong>{derived ? `${derived.initiative >= 0 ? "+" : ""}${derived.initiative}` : "-"}</strong>
           </div>
         </div>
       </Card>
@@ -65,7 +65,7 @@ export function StickySummary({ derived, issues, savedLabel }: StickySummaryProp
               {derived.attacks.length ? derived.attacks.map((attack) => (
                 <div key={attack.name} className="app-mini-row">
                   <strong>{attack.name}</strong>
-                  <span>{`${attack.attackBonus >= 0 ? "+" : ""}${attack.attackBonus} • ${attack.damage}`}</span>
+                  <span>{`${attack.attackBonus >= 0 ? "+" : ""}${attack.attackBonus} / ${attack.damage}`}</span>
                 </div>
               )) : <p className="app-muted">No equipped attacks yet.</p>}
             </div>

@@ -8,6 +8,7 @@ import { SessionHub } from "./realtime/sessionHub.js";
 import { registerAiRoutes } from "./routes/ai.js";
 import { registerRealtimeRoutes } from "./realtime/registerRealtimeRoutes.js";
 import { registerCharacterRoutes } from "./routes/characters.js";
+import { registerRulesRoutes } from "./routes/rules.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 
 export interface CreateAppOptions {
@@ -25,26 +26,43 @@ export async function createApp(options: CreateAppOptions): Promise<FastifyInsta
     logger: options.logger ?? true
   });
 
-  await app.register(cors, {
-    origin: true
+  app.addHook("onRequest", async (request, reply) => {
+    reply.header("X-Request-Id", request.id);
   });
 
-  app.setErrorHandler((error, _request, reply) => {
+  const configuredOrigins = (process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  await app.register(cors, {
+    origin: configuredOrigins.length ? configuredOrigins : true
+  });
+
+  app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
       return reply.code(400).send({
-        message: "Request validation failed.",
-        issues: error.issues
+        error: {
+          code: "request.validation_failed",
+          message: "Request validation failed.",
+          details: error.issues,
+          requestId: request.id
+        }
       });
     }
 
     app.log.error(error);
     return reply.code(500).send({
-      message: "Unexpected API error."
+      error: {
+        code: "api.unexpected_error",
+        message: "Unexpected API error.",
+        requestId: request.id
+      }
     });
   });
 
   app.get("/health", async () => {
-    const aiCatalog = options.aiService ? await options.aiService.getModelCatalog() : null;
+    const aiCatalog = options.aiService ? await options.aiService.getModelCatalog().catch(() => null) : null;
     return {
       status: "ok",
       storageMode,
@@ -58,6 +76,25 @@ export async function createApp(options: CreateAppOptions): Promise<FastifyInsta
     };
   });
 
+  app.get("/ready", async () => {
+    const aiCatalog = options.aiService ? await options.aiService.getModelCatalog() : null;
+    return {
+      status: aiCatalog && !aiCatalog.available ? "degraded" : "ready",
+      storageMode,
+      checks: {
+        api: { ok: true },
+        storage: { ok: true, mode: storageMode },
+        ai: {
+          ok: aiCatalog?.available ?? false,
+          configured: Boolean(options.aiService),
+          defaultModel: aiCatalog?.defaultModel ?? null,
+          reason: aiCatalog?.reason
+        }
+      }
+    };
+  });
+
+  await registerRulesRoutes(app);
   await registerRealtimeRoutes(app, options.repository, sessionHub);
   await registerCharacterRoutes(app, options.repository, sessionHub);
   await registerSessionRoutes(app, options.repository, sessionHub);

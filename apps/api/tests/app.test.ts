@@ -77,6 +77,41 @@ afterEach(async () => {
 });
 
 describe("Forge Character API", () => {
+  it("returns server-authoritative rules previews with actionable next steps", async () => {
+    const { app } = await buildTestHarness();
+    closers.push(() => app.close());
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/rules/preview",
+      payload: {
+        draft: {
+          rulesetId: "5e-2024",
+          classId: "5e24-class-cleric",
+          speciesId: "5e24-species-dwarf",
+          level: 3
+        }
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as {
+      preview: {
+        draft: { rulesetId: string; level: number };
+        playability: string;
+        nextAction: { stepId: string; label: string };
+        issues: Array<{ stepId: string; actionLabel: string }>;
+        contentPack: { rulesetId: string; counts: Record<string, number> };
+      };
+    };
+    expect(body.preview.draft.rulesetId).toBe("5e-2024");
+    expect(body.preview.draft.level).toBe(3);
+    expect(body.preview.playability).toBe("blocked");
+    expect(body.preview.nextAction.stepId).toBe("identity");
+    expect(body.preview.issues[0]?.actionLabel).toBeTruthy();
+    expect(body.preview.contentPack.counts.classes).toBeGreaterThan(0);
+  });
+
   it("creates, fetches, and revises characters while publishing websocket events", async () => {
     const { app, sessionHub } = await buildTestHarness();
     closers.push(() => app.close());
@@ -166,6 +201,14 @@ describe("Forge Character API", () => {
     expect(revisedBody.character.latestRevision.revisionNumber).toBe(2);
     expect(revisedBody.character.revisions).toHaveLength(2);
     expect(events.map((event) => event.type)).toEqual(["character.published", "character.published"]);
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/api/characters?search=Aelar"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    const listBody = listResponse.json() as { characters: Array<{ id: string }> };
+    expect(listBody.characters.some((entry) => entry.id === createdBody.character.id)).toBe(true);
 
     unsubscribe();
   });
@@ -278,6 +321,25 @@ describe("Forge Character API", () => {
     expect(fetchedSession.session.seats.length).toBe(2);
     expect(globalEvents.some((event) => event.type === "character.imported")).toBe(true);
     expect(globalEvents.some((event) => event.type === "session.roster.updated")).toBe(true);
+
+    const acceptResponse = await app.inject({
+      method: "PATCH",
+      url: `/api/sessions/${sessionId}/imports/${importedBody.session.imports[0]!.id}`,
+      payload: {
+        status: "ACCEPTED"
+      }
+    });
+    expect(acceptResponse.statusCode).toBe(200);
+    const acceptedBody = acceptResponse.json() as { sessionImport: { status: string } };
+    expect(acceptedBody.sessionImport.status).toBe("ACCEPTED");
+
+    const joinResponse = await app.inject({
+      method: "GET",
+      url: `/api/sessions/join/${sessionBody.session.joinCode}`
+    });
+    expect(joinResponse.statusCode).toBe(200);
+    const joinedBody = joinResponse.json() as { session: { id: string } };
+    expect(joinedBody.session.id).toBe(sessionId);
 
     unsubscribeSession();
     unsubscribeGlobal();

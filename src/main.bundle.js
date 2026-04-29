@@ -3036,7 +3036,7 @@ ${xrefStart}
   `;
     dom.coveragePanel.innerHTML = `
     <h4>Content Coverage Snapshot</h4>
-    <p class="helper">Pass-2 parity tracking compares current pack size against configured SRD-oriented targets.</p>
+      <p class="helper">Content coverage compares the current pack size against configured SRD-oriented targets.</p>
     <div class="coverage-grid">
       ${card("Spells", report.counts.spells, report.targets.spells, report.percentages.spells)}
       ${card("Items", report.counts.items, report.targets.items, report.percentages.items)}
@@ -3117,10 +3117,10 @@ ${xrefStart}
         },
         "*"
       );
-      status("Sent character to DM app. It will be imported into the game session automatically.");
+      status("Sent character to the session handoff. It will be imported into the game session automatically.");
       return;
     }
-    status("Use In Game Session works when this creator is embedded in the DM desktop app.");
+    status("Session handoff works when this creator is embedded in the DM desktop app.");
   }
   function registerGameSessionBridge() {
     window.addEventListener("message", (event) => {

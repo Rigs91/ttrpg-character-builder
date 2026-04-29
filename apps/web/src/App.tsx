@@ -1,17 +1,16 @@
-import { startTransition, useDeferredValue, useEffect, useEffectEvent, useMemo, useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
   type BuilderStepId,
   buildParsableCharacterLines,
   buildSimplePdf,
+  buildRulesPreview,
   createDefaultDraft,
-  deriveCharacter,
   findById,
   findClassById,
   getCoverageReport,
   parseCharacterDraftJson,
   RULESETS,
   serializeCharacterDraft,
-  validateCharacter,
   type CharacterDraft,
   type CharacterIssue
 } from "@forge/rules-core";
@@ -20,7 +19,22 @@ import { Badge, Button, Card, Chip, ForgeTheme, Panel, SectionHeading, StatusStr
 import { AiAssistantPanel } from "./components/AiAssistantPanel";
 import { IssueList } from "./components/IssueList";
 import { StickySummary } from "./components/StickySummary";
-import { API_BASE_URL, buildSessionSocketUrl, createCharacter, createCharacterRevision, createSession, getSession, publishCharacterToSession, type ApiCharacter, type ApiSession } from "./lib/api";
+import {
+  API_BASE_URL,
+  addSessionSeat,
+  buildSessionSocketUrl,
+  createCharacter,
+  createCharacterRevision,
+  createSession,
+  getSession,
+  getSessionByJoinCode,
+  listCharacters,
+  publishCharacterToSession,
+  restoreCharacterRevision,
+  reviewSessionImport,
+  type ApiCharacter,
+  type ApiSession
+} from "./lib/api";
 import "./App.css";
 
 const LOCAL_DRAFT_KEY = "forge-character-mvp-draft-v2";
@@ -80,26 +94,45 @@ export default function App() {
       return createDefaultDraft("5e-2024");
     }
   });
+  const draftRef = useRef(draft);
+  const [undoDraft, setUndoDraft] = useState<{ draft: CharacterDraft; label: string } | null>(null);
   const [activeStep, setActiveStep] = useState<BuilderStepId>("ruleset");
   const [ownerName, setOwnerName] = useState("Table Owner");
   const [ownerEmail, setOwnerEmail] = useState("");
   const [sessionTitle, setSessionTitle] = useState("Friday Night Session");
+  const [sessionJoinCode, setSessionJoinCode] = useState("");
+  const [newSeatName, setNewSeatName] = useState("");
   const [publishNote, setPublishNote] = useState("");
+  const [featQuery, setFeatQuery] = useState("");
   const [spellQuery, setSpellQuery] = useState("");
   const [itemQuery, setItemQuery] = useState("");
+  const [spellLevelFilter, setSpellLevelFilter] = useState("all");
+  const [spellLegalOnly, setSpellLegalOnly] = useState(true);
+  const [itemCategoryFilter, setItemCategoryFilter] = useState("all");
+  const [itemSelectedOnly, setItemSelectedOnly] = useState(false);
+  const [featLegalOnly, setFeatLegalOnly] = useState(false);
   const [saveMessage, setSaveMessage] = useState("Local autosave armed");
+  const [apiMessage, setApiMessage] = useState("");
+  const [apiBusy, setApiBusy] = useState(false);
   const [cloudCharacter, setCloudCharacter] = useState<ApiCharacter | null>(null);
+  const [savedBuilds, setSavedBuilds] = useState<ApiCharacter[]>([]);
   const [session, setSession] = useState<ApiSession | null>(null);
   const [dmLog, setDmLog] = useState<string[]>([]);
 
   const ruleset = useMemo(() => RULESETS.find((entry) => entry.id === draft.rulesetId) || RULESETS[0], [draft.rulesetId]);
   const characterClass = useMemo(() => findClassById(ruleset, draft.classId), [ruleset, draft.classId]);
   const background = useMemo(() => findById(ruleset.backgrounds, draft.backgroundId), [ruleset, draft.backgroundId]);
-  const derived = useMemo(() => deriveCharacter(draft), [draft]);
-  const validation = useMemo(() => validateCharacter(draft), [draft]);
+  const rulesPreview = useMemo(() => buildRulesPreview(draft), [draft]);
+  const derived = rulesPreview.derived;
+  const validation = { issues: rulesPreview.issues, summary: rulesPreview.summary };
   const stepIssues = useMemo(() => validation.issues.filter((issue) => fieldMatchesStep(activeStep, issue.field)), [activeStep, validation.issues]);
+  const deferredFeatQuery = useDeferredValue(featQuery);
   const deferredSpellQuery = useDeferredValue(spellQuery);
   const deferredItemQuery = useDeferredValue(itemQuery);
+
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
 
   const persistDraft = useEffectEvent((nextDraft: CharacterDraft) => {
     localStorage.setItem(LOCAL_DRAFT_KEY, serializeCharacterDraft(nextDraft));
@@ -110,6 +143,12 @@ export default function App() {
     const timer = window.setTimeout(() => persistDraft(draft), 250);
     return () => window.clearTimeout(timer);
   }, [draft, persistDraft]);
+
+  useEffect(() => {
+    listCharacters({ limit: 8 })
+      .then((response) => setSavedBuilds(response.characters))
+      .catch(() => null);
+  }, [cloudCharacter?.id, cloudCharacter?.updatedAt]);
 
   useEffect(() => {
     if (!session?.id) {
@@ -124,7 +163,11 @@ export default function App() {
     return () => socket.close();
   }, [session?.id]);
 
-  function updateDraft(recipe: (current: CharacterDraft) => CharacterDraft) {
+  function updateDraft(recipe: (current: CharacterDraft) => CharacterDraft, undoLabel = "Manual edit") {
+    setUndoDraft({
+      draft: draftRef.current,
+      label: undoLabel
+    });
     startTransition(() => {
       setDraft((current) => recipe({ ...current, updatedAt: new Date().toISOString() }));
     });
@@ -135,12 +178,21 @@ export default function App() {
   }
 
   function handleApplyAiPreview(previewDraft: CharacterDraft) {
-    updateDraft(() => previewDraft);
+    updateDraft(() => previewDraft, "Applied AI draft preview");
     setSaveMessage(`AI preview applied ${new Date().toLocaleTimeString()}`);
   }
 
+  function handleUndoDraft() {
+    if (!undoDraft) {
+      return;
+    }
+    setDraft(undoDraft.draft);
+    setSaveMessage(`Restored ${undoDraft.label.toLowerCase()} ${new Date().toLocaleTimeString()}`);
+    setUndoDraft(null);
+  }
+
   function changeRuleset(rulesetId: string) {
-    updateDraft(() => createDefaultDraft(rulesetId));
+    updateDraft(() => createDefaultDraft(rulesetId), "Changed ruleset");
     setActiveStep("identity");
   }
 
@@ -156,41 +208,158 @@ export default function App() {
     });
   }
 
+  function handleIssueSelect(issue: CharacterIssue) {
+    const target = rulesPreview.issues.find((entry) => entry.code === issue.code && entry.field === issue.field);
+    setActiveStep(target?.stepId ?? "review");
+  }
+
   async function handleCloudSave() {
     if (!draft.name.trim()) {
       setActiveStep("review");
+      setApiMessage("Add a character name before saving a cloud revision.");
       return;
     }
-    const payload = { ownerName, ownerEmail, contentPackVersion: `${ruleset.shortName}-mvp`, state: draft, derived, issues: validation.issues };
-    const response = cloudCharacter
-      ? await createCharacterRevision(cloudCharacter.id, { reason: "Builder save", state: draft, derived, issues: validation.issues })
-      : await createCharacter(payload);
-    setCloudCharacter(response.character);
-    setSaveMessage(`Cloud revision saved at ${new Date().toLocaleTimeString()}`);
+    setApiBusy(true);
+    setApiMessage("");
+    try {
+      const payload = { ownerName, ownerEmail, contentPackVersion: `${ruleset.shortName}-preview`, state: draft, derived, issues: validation.issues };
+      const response = cloudCharacter
+        ? await createCharacterRevision(cloudCharacter.id, { reason: "Builder save", state: draft, derived, issues: validation.issues })
+        : await createCharacter(payload);
+      setCloudCharacter(response.character);
+      setSaveMessage(`Cloud revision saved at ${new Date().toLocaleTimeString()}`);
+      setApiMessage(`Saved ${response.character.name} as revision #${response.character.latestRevision.revisionNumber}.`);
+    } catch (error) {
+      setApiMessage(error instanceof Error ? error.message : "Cloud save failed.");
+    } finally {
+      setApiBusy(false);
+    }
   }
 
   async function handleCreateSession() {
-    const response = await createSession({ ownerName, ownerEmail, title: sessionTitle, rulesetId: draft.rulesetId });
-    setSession(response.session);
-    setWorkspace("dm");
+    setApiBusy(true);
+    setApiMessage("");
+    try {
+      const response = await createSession({ ownerName, ownerEmail, title: sessionTitle, rulesetId: draft.rulesetId });
+      setSession(response.session);
+      setSessionJoinCode(response.session.joinCode);
+      setWorkspace("dm");
+      setApiMessage(`Created session ${response.session.title} with join code ${response.session.joinCode}.`);
+    } catch (error) {
+      setApiMessage(error instanceof Error ? error.message : "Session creation failed.");
+    } finally {
+      setApiBusy(false);
+    }
   }
 
   async function handleRefreshSession() {
     if (!session?.id) {
       return;
     }
-    const response = await getSession(session.id);
-    setSession(response.session);
+    try {
+      const response = await getSession(session.id);
+      setSession(response.session);
+      setApiMessage(`Refreshed session ${response.session.title}.`);
+    } catch (error) {
+      setApiMessage(error instanceof Error ? error.message : "Session refresh failed.");
+    }
+  }
+
+  async function handleJoinSession() {
+    const code = sessionJoinCode.trim();
+    if (!code) {
+      setApiMessage("Enter a session join code first.");
+      return;
+    }
+    setApiBusy(true);
+    setApiMessage("");
+    try {
+      const response = await getSessionByJoinCode(code);
+      setSession(response.session);
+      setWorkspace("dm");
+      setApiMessage(`Opened session ${response.session.title}.`);
+    } catch (error) {
+      setApiMessage(error instanceof Error ? error.message : "Session lookup failed.");
+    } finally {
+      setApiBusy(false);
+    }
   }
 
   async function handlePublishToSession() {
     if (!session?.id || !cloudCharacter) {
+      setApiMessage("Save a cloud revision and create or join a session before publishing.");
       return;
     }
-    const response = await publishCharacterToSession(session.id, { characterId: cloudCharacter.id, submittedByName: ownerName, submittedByEmail: ownerEmail, note: publishNote });
-    setSession(response.session);
-    setPublishNote("");
-    setWorkspace("dm");
+    setApiBusy(true);
+    setApiMessage("");
+    try {
+      const response = await publishCharacterToSession(session.id, { characterId: cloudCharacter.id, submittedByName: ownerName, submittedByEmail: ownerEmail, note: publishNote });
+      setSession(response.session);
+      setPublishNote("");
+      setWorkspace("dm");
+      setApiMessage(`Submitted ${cloudCharacter.name} to ${response.session.title}.`);
+    } catch (error) {
+      setApiMessage(error instanceof Error ? error.message : "Session publish failed.");
+    } finally {
+      setApiBusy(false);
+    }
+  }
+
+  async function handleReviewImport(importId: string, status: "ACCEPTED" | "REJECTED") {
+    if (!session?.id) {
+      return;
+    }
+    setApiBusy(true);
+    setApiMessage("");
+    try {
+      const response = await reviewSessionImport(session.id, importId, status);
+      setSession(response.session);
+      setApiMessage(status === "ACCEPTED" ? "Accepted character into the session queue." : "Rejected character from the session queue.");
+    } catch (error) {
+      setApiMessage(error instanceof Error ? error.message : "Import review failed.");
+    } finally {
+      setApiBusy(false);
+    }
+  }
+
+  async function handleAddSeat() {
+    if (!session?.id || !newSeatName.trim()) {
+      setApiMessage("Create or join a session and enter a seat name first.");
+      return;
+    }
+    setApiBusy(true);
+    setApiMessage("");
+    try {
+      const response = await addSessionSeat(session.id, { displayName: newSeatName.trim(), role: "PLAYER" });
+      setSession(response.session);
+      setNewSeatName("");
+      setApiMessage("Added a player seat to the session roster.");
+    } catch (error) {
+      setApiMessage(error instanceof Error ? error.message : "Seat creation failed.");
+    } finally {
+      setApiBusy(false);
+    }
+  }
+
+  async function handleRestoreRevision(revisionId: string) {
+    if (!cloudCharacter?.id) {
+      return;
+    }
+    setApiBusy(true);
+    setApiMessage("");
+    try {
+      const response = await restoreCharacterRevision(cloudCharacter.id, revisionId);
+      setCloudCharacter(response.character);
+      const restoredState = response.character.latestRevision as unknown as { state?: CharacterDraft };
+      if (restoredState.state) {
+        updateDraft(() => restoredState.state!, "Restored cloud revision");
+      }
+      setApiMessage(`Restored revision #${response.character.latestRevision.revisionNumber}.`);
+    } catch (error) {
+      setApiMessage(error instanceof Error ? error.message : "Revision restore failed.");
+    } finally {
+      setApiBusy(false);
+    }
   }
 
   function handleExportJson() {
@@ -210,7 +379,39 @@ export default function App() {
     }).catch(() => setSaveMessage("Import failed: invalid draft JSON."));
   }
 
+  const selectedFeatSet = new Set(draft.selectedFeatIds);
+  const selectedSpellSet = new Set(draft.selectedSpellIds);
+  const selectedItemSet = new Set(draft.selectedItemIds);
+  const legalSpellIds = new Set(
+    ruleset.spells
+      .filter((spell) => {
+        const classSlug = characterClass?.slug || "";
+        return !classSlug || spell.classes.includes(classSlug);
+      })
+      .filter((spell) => !derived?.spellcasting || spell.level <= derived.spellcasting.maxSpellLevel)
+      .map((spell) => spell.id)
+  );
+  const itemCategories = Array.from(new Set(ruleset.items.map((item) => item.category))).sort();
+  const spellLevels = Array.from(new Set(ruleset.spells.map((spell) => spell.level))).sort((left, right) => left - right);
+
+  const filteredFeats = ruleset.feats.filter((feat) => {
+    const query = deferredFeatQuery.trim().toLowerCase();
+    if (query && !`${feat.name} ${feat.description}`.toLowerCase().includes(query)) {
+      return false;
+    }
+    if (featLegalOnly && validation.issues.some((issue) => issue.field === "selectedFeatIds" && issue.message.includes(feat.name))) {
+      return false;
+    }
+    return true;
+  });
+
   const filteredSpells = ruleset.spells.filter((spell) => {
+    if (spellLegalOnly && !legalSpellIds.has(spell.id)) {
+      return false;
+    }
+    if (spellLevelFilter !== "all" && String(spell.level) !== spellLevelFilter) {
+      return false;
+    }
     if (!deferredSpellQuery.trim()) {
       return true;
     }
@@ -219,6 +420,12 @@ export default function App() {
   });
 
   const filteredItems = ruleset.items.filter((item) => {
+    if (itemSelectedOnly && !selectedItemSet.has(item.id)) {
+      return false;
+    }
+    if (itemCategoryFilter !== "all" && item.category !== itemCategoryFilter) {
+      return false;
+    }
     if (!deferredItemQuery.trim()) {
       return true;
     }
@@ -248,32 +455,60 @@ export default function App() {
   return (
     <ForgeTheme className="app-root">
       <WorkspaceShell
-        eyebrow="Forge Character AI"
-        title="AI-Assisted Player Builder and DM Session Hub"
-        subtitle={`Optional Ollama draft assist, shared rules validation, and DM session tooling wired to ${API_BASE_URL}.`}
+        eyebrow="Guided TTRPG Character Builder"
+        title="Forge Character Workspace"
+        subtitle={`Rules-aware character creation, saved revisions, session handoff, and optional local Ollama assist wired to ${API_BASE_URL}.`}
         headerActions={
           <>
-            <Badge tone="accent">Optional Ollama Draft Agent</Badge>
+            <Badge tone={rulesPreview.playability === "ready" ? "success" : rulesPreview.playability === "blocked" ? "danger" : "warning"}>{rulesPreview.playability === "ready" ? "Ready for table" : rulesPreview.playability === "blocked" ? "Blocked" : "Needs review"}</Badge>
             <Chip active={workspace === "builder"} onClick={() => setWorkspace("builder")}>Player Builder</Chip>
             <Chip active={workspace === "dm"} onClick={() => setWorkspace("dm")}>DM Sessions</Chip>
-            <Button tone="primary" onClick={handleCloudSave}>Save Cloud Revision</Button>
+            <Button disabled={!undoDraft} onClick={handleUndoDraft}>{undoDraft ? `Undo ${undoDraft.label}` : "Undo"}</Button>
+            <Button tone="primary" disabled={apiBusy} onClick={handleCloudSave}>{apiBusy ? "Working..." : "Save Revision"}</Button>
           </>
         }
         status={
           <StatusStrip
             items={[
+              { id: "next", label: "Next Action", state: rulesPreview.playability === "blocked" ? "danger" : rulesPreview.playability === "needs-review" ? "warning" : "ready", value: rulesPreview.nextAction.label, description: rulesPreview.nextAction.detail },
               { id: "validation", label: "Validation", state: issueTone(validation.issues), value: `${validation.summary.errors} / ${validation.summary.warnings}`, description: "errors / warnings" },
               { id: "autosave", label: "Autosave", state: "ready", value: saveMessage },
-              { id: "cloud", label: "Cloud", state: cloudCharacter ? "ready" : "warning", value: cloudCharacter ? cloudCharacter.id.slice(0, 8) : "Not published", description: cloudCharacter ? "Latest persisted character" : "Create a character record" },
-              { id: "session", label: "Session", state: session ? "ready" : "idle", value: session?.joinCode || "No room", description: session ? session.title : "Create a DM room to publish into" }
+              { id: "cloud", label: "Saved Build", state: cloudCharacter ? "ready" : "warning", value: cloudCharacter ? `Rev #${cloudCharacter.latestRevision.revisionNumber}` : "Local only", description: cloudCharacter ? "Latest persisted character" : "Save to create revision history" },
+              { id: "session", label: "Session", state: session ? "ready" : "idle", value: session?.joinCode || "No room", description: session ? session.title : "Create or join a session room" }
             ]}
           />
         }
-        rail={workspace === "builder" ? <StepRail steps={railSteps} activeStepId={activeStep} onStepSelect={(stepId) => setActiveStep(stepId as BuilderStepId)} onContinue={() => setActiveStep(builderSteps[Math.min(builderSteps.findIndex((step) => step.id === activeStep) + 1, builderSteps.length - 1)].id)} helperText="The rail mirrors production MVP flow: select only legal options, keep the summary live, and make share state obvious." /> : undefined}
+        rail={workspace === "builder" ? <StepRail steps={railSteps} activeStepId={activeStep} onStepSelect={(stepId) => setActiveStep(stepId as BuilderStepId)} onContinue={() => setActiveStep(builderSteps[Math.min(builderSteps.findIndex((step) => step.id === activeStep) + 1, builderSteps.length - 1)].id)} helperText="Follow the rail, resolve the next action, and keep every saved revision rules-checked." /> : undefined}
         sidebar={workspace === "builder" ? sheetSidebar : undefined}
       >
         {workspace === "builder" ? (
           <div className="app-stack">
+            <Card
+              tone={rulesPreview.playability === "ready" ? "highlight" : "subtle"}
+              title="Build readiness"
+              detail={rulesPreview.nextAction.detail}
+            >
+              <div className="app-readiness">
+                <div>
+                  <span className="app-muted">Next best action</span>
+                  <strong>{rulesPreview.nextAction.label}</strong>
+                </div>
+                <div className="app-checklist" aria-label="Build completion checklist">
+                  {rulesPreview.completion.map((step) => (
+                    <button
+                      key={step.stepId}
+                      type="button"
+                      className={`app-checklist__item app-checklist__item--${step.status}`}
+                      onClick={() => setActiveStep(step.stepId)}
+                    >
+                      <span>{step.label}</span>
+                      <small>{step.issueCount ? `${step.issueCount} issue${step.issueCount === 1 ? "" : "s"}` : step.actionLabel}</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </Card>
+            {apiMessage ? <p className="app-api-message" role="status">{apiMessage}</p> : null}
             <AiAssistantPanel draft={draft} activeStep={activeStep} onApplyPreview={handleApplyAiPreview} />
             <Panel
               tone="elevated"
@@ -439,9 +674,30 @@ export default function App() {
                       </div>
                     </Card>
                   )}
-                  <Card title="Feats" detail="Unsupported prerequisites surface as validation errors instead of silently slipping through.">
+                  <Card title="Feats" detail="Search by feat name or prerequisite impact. Unsupported prerequisites still surface as validation errors.">
+                    <div className="app-filter-row">
+                      <label className="app-field">
+                        <span>Search feats</span>
+                        <input value={featQuery} onChange={(event) => setFeatQuery(event.target.value)} placeholder="Search feat name or description..." />
+                      </label>
+                      <label className="app-toggle-row">
+                        <input type="checkbox" checked={featLegalOnly} onChange={(event) => setFeatLegalOnly(event.target.checked)} />
+                        <span>Hide currently invalid feats</span>
+                      </label>
+                    </div>
+                    {draft.selectedFeatIds.length ? (
+                      <div className="app-selected-tray">
+                        <strong>Selected feats</strong>
+                        <div className="app-chip-grid">
+                          {draft.selectedFeatIds.map((featId) => {
+                            const feat = findById(ruleset.feats, featId);
+                            return feat ? <Chip key={feat.id} active onClick={() => toggleArraySelection("selectedFeatIds", feat.id)}>{feat.name}</Chip> : null;
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="app-chip-grid">
-                      {ruleset.feats.slice(0, 24).map((feat) => <Chip key={feat.id} active={draft.selectedFeatIds.includes(feat.id)} onClick={() => toggleArraySelection("selectedFeatIds", feat.id)}>{feat.name}</Chip>)}
+                      {filteredFeats.slice(0, 36).map((feat) => <Chip key={feat.id} active={selectedFeatSet.has(feat.id)} title={feat.description} onClick={() => toggleArraySelection("selectedFeatIds", feat.id)}>{feat.name}</Chip>)}
                     </div>
                   </Card>
                 </div>
@@ -450,28 +706,76 @@ export default function App() {
                 <div className="app-stack">
                   <div className="app-split-grid">
                     <Card title="Items and loadout" detail="Starter gear, attacks, and AC update live from this selection.">
-                      <label className="app-field">
-                        <span>Search items</span>
-                        <input value={itemQuery} onChange={(event) => setItemQuery(event.target.value)} placeholder="Search weapon, armor, focus..." />
-                      </label>
+                      <div className="app-filter-row">
+                        <label className="app-field">
+                          <span>Search items</span>
+                          <input value={itemQuery} onChange={(event) => setItemQuery(event.target.value)} placeholder="Search weapon, armor, focus..." />
+                        </label>
+                        <label className="app-field">
+                          <span>Category</span>
+                          <select value={itemCategoryFilter} onChange={(event) => setItemCategoryFilter(event.target.value)}>
+                            <option value="all">All categories</option>
+                            {itemCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+                          </select>
+                        </label>
+                        <label className="app-toggle-row">
+                          <input type="checkbox" checked={itemSelectedOnly} onChange={(event) => setItemSelectedOnly(event.target.checked)} />
+                          <span>Selected only</span>
+                        </label>
+                      </div>
+                      {draft.selectedItemIds.length ? (
+                        <div className="app-selected-tray">
+                          <strong>Selected loadout</strong>
+                          <div className="app-chip-grid">
+                            {draft.selectedItemIds.map((itemId) => {
+                              const item = findById(ruleset.items, itemId);
+                              return item ? <Chip key={item.id} active onClick={() => toggleArraySelection("selectedItemIds", item.id)}>{item.name}</Chip> : null;
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
                       <div className="app-scroll-list">
                         {filteredItems.slice(0, 60).map((item) => (
                           <label key={item.id} className="app-check-row">
-                            <input type="checkbox" checked={draft.selectedItemIds.includes(item.id)} onChange={() => toggleArraySelection("selectedItemIds", item.id)} />
+                            <input type="checkbox" checked={selectedItemSet.has(item.id)} onChange={() => toggleArraySelection("selectedItemIds", item.id)} />
                             <span><strong>{item.name}</strong><small>{`${item.category} / ${item.cost}`}</small></span>
                           </label>
                         ))}
                       </div>
                     </Card>
                     <Card title="Spells and legal pickers" detail={derived?.spellcasting ? `Current max spell level ${derived.spellcasting.maxSpellLevel}` : "Current class has no spellcasting."}>
-                      <label className="app-field">
-                        <span>Search spells</span>
-                        <input value={spellQuery} onChange={(event) => setSpellQuery(event.target.value)} placeholder="Search spell, school, class..." />
-                      </label>
+                      <div className="app-filter-row">
+                        <label className="app-field">
+                          <span>Search spells</span>
+                          <input value={spellQuery} onChange={(event) => setSpellQuery(event.target.value)} placeholder="Search spell, school, class..." />
+                        </label>
+                        <label className="app-field">
+                          <span>Level</span>
+                          <select value={spellLevelFilter} onChange={(event) => setSpellLevelFilter(event.target.value)}>
+                            <option value="all">All levels</option>
+                            {spellLevels.map((level) => <option key={level} value={level}>{level === 0 ? "Cantrip" : `Level ${level}`}</option>)}
+                          </select>
+                        </label>
+                        <label className="app-toggle-row">
+                          <input type="checkbox" checked={spellLegalOnly} onChange={(event) => setSpellLegalOnly(event.target.checked)} />
+                          <span>Legal picks only</span>
+                        </label>
+                      </div>
+                      {draft.selectedSpellIds.length ? (
+                        <div className="app-selected-tray">
+                          <strong>Selected spells</strong>
+                          <div className="app-chip-grid">
+                            {draft.selectedSpellIds.map((spellId) => {
+                              const spell = findById(ruleset.spells, spellId);
+                              return spell ? <Chip key={spell.id} active onClick={() => toggleArraySelection("selectedSpellIds", spell.id)}>{spell.name}</Chip> : null;
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
                       <div className="app-scroll-list">
                         {filteredSpells.slice(0, 60).map((spell) => (
                           <label key={spell.id} className="app-check-row">
-                            <input type="checkbox" checked={draft.selectedSpellIds.includes(spell.id)} onChange={() => toggleArraySelection("selectedSpellIds", spell.id)} />
+                            <input type="checkbox" checked={selectedSpellSet.has(spell.id)} onChange={() => toggleArraySelection("selectedSpellIds", spell.id)} />
                             <span><strong>{spell.name}</strong><small>{`Level ${spell.level} / ${spell.school} / ${spell.classes.join(", ")}`}</small></span>
                           </label>
                         ))}
@@ -492,8 +796,16 @@ export default function App() {
               ) : null}
               {activeStep === "review" ? (
                 <div className="app-stack">
+                  <Card tone={rulesPreview.playability === "ready" ? "highlight" : "subtle"} title="Ready-for-table check" detail={rulesPreview.nextAction.detail}>
+                    <div className="app-mini-list">
+                      <div className="app-mini-row"><strong>Playability</strong><span>{rulesPreview.playability}</span></div>
+                      <div className="app-mini-row"><strong>Errors</strong><span>{validation.summary.errors}</span></div>
+                      <div className="app-mini-row"><strong>Warnings</strong><span>{validation.summary.warnings}</span></div>
+                      <div className="app-mini-row"><strong>Content pack</strong><span>{rulesPreview.contentPack.label}</span></div>
+                    </div>
+                  </Card>
                   <div className="app-action-row">
-                    <Button tone="primary" onClick={handleCloudSave}>Save cloud revision</Button>
+                    <Button tone="primary" disabled={apiBusy} onClick={handleCloudSave}>Save cloud revision</Button>
                     <Button onClick={handleExportJson}>Export JSON</Button>
                     <Button onClick={handleExportPdf}>Export PDF</Button>
                     <label className="app-upload">
@@ -505,24 +817,63 @@ export default function App() {
                     <span>Publish note</span>
                     <textarea rows={3} value={publishNote} onChange={(event) => setPublishNote(event.target.value)} placeholder="DM-facing handoff note or character intent." />
                   </label>
+                  <Card title="Session handoff payload" detail="This is what the DM hub receives when you publish the saved revision.">
+                    <div className="app-mini-list">
+                      <div className="app-mini-row"><strong>Character</strong><span>{draft.name || "Unnamed draft"}</span></div>
+                      <div className="app-mini-row"><strong>Ruleset</strong><span>{ruleset.shortName}</span></div>
+                      <div className="app-mini-row"><strong>Revision</strong><span>{cloudCharacter ? `#${cloudCharacter.latestRevision.revisionNumber}` : "Save first"}</span></div>
+                      <div className="app-mini-row"><strong>Validation</strong><span>{`${validation.summary.errors} errors / ${validation.summary.warnings} warnings`}</span></div>
+                    </div>
+                  </Card>
                   <div className="app-action-row">
-                    <Button tone="secondary" onClick={handleCreateSession}>Create DM session</Button>
-                    <Button tone="primary" disabled={!session || !cloudCharacter} onClick={handlePublishToSession}>Publish to current session</Button>
-                    <Button onClick={() => setWorkspace("dm")} disabled={!session}>Open DM hub</Button>
+                    <Button tone="secondary" disabled={apiBusy} onClick={handleCreateSession}>Create session room</Button>
+                    <Button tone="primary" disabled={!session || !cloudCharacter || apiBusy} onClick={handlePublishToSession}>Submit to session review</Button>
+                    <Button onClick={() => setWorkspace("dm")} disabled={!session}>Open session hub</Button>
                   </div>
-                  <IssueList issues={validation.issues} title="Release gating" emptyLabel="This draft is ready to publish and print." />
+                  {cloudCharacter?.revisions?.length ? (
+                    <Card title="Revision history" detail="Restore creates a new checked revision, preserving the original history.">
+                      <div className="app-scroll-list">
+                        {cloudCharacter.revisions.slice().reverse().map((revision) => (
+                          <div key={revision.id} className="app-mini-row">
+                            <strong>{`Revision #${revision.revisionNumber}`}</strong>
+                            <span>{`${revision.issueSummary.errors} errors / ${revision.issueSummary.warnings} warnings`}</span>
+                            <Button size="sm" disabled={apiBusy || revision.id === cloudCharacter.latestRevision.id} onClick={() => handleRestoreRevision(revision.id)}>Restore</Button>
+                          </div>
+                        ))}
+                      </div>
+                    </Card>
+                  ) : null}
+                  {savedBuilds.length ? (
+                    <Card title="Recent saved builds" detail="API-backed characters available in this local workspace.">
+                      <div className="app-scroll-list">
+                        {savedBuilds.map((entry) => (
+                          <div key={entry.id} className="app-mini-row">
+                            <strong>{entry.name}</strong>
+                            <span>{`${entry.rulesetId} / rev #${entry.latestRevision.revisionNumber}`}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </Card>
+                  ) : null}
+                  {apiMessage ? <p className="app-api-message" role="status">{apiMessage}</p> : null}
+                  <IssueList issues={validation.issues} title="Release gating" emptyLabel="This draft is ready to publish and print." onIssueSelect={handleIssueSelect} />
                 </div>
               ) : null}
             </Panel>
-            <IssueList issues={stepIssues} title="Current step diagnostics" />
+            <IssueList issues={stepIssues} title="Current step diagnostics" onIssueSelect={handleIssueSelect} />
           </div>
         ) : (
           <div className="app-stack">
-            <Panel tone="elevated" padding="lg" header={<SectionHeading eyebrow="DM Session Hub" title="Roster, imports, and live publish status" description="This is the MVP replacement for the old postMessage-only CTA. It is now a real workflow surface with API-backed state." />}>
+            {apiMessage ? <p className="app-api-message" role="status">{apiMessage}</p> : null}
+            <Panel tone="elevated" padding="lg" header={<SectionHeading eyebrow="Session Hub" title="Roster, review queue, and publish status" description="Create a room, share the join code, then accept or reject submitted character revisions before table play." />}>
               <div className="app-inline-fields">
                 <label className="app-field">
                   <span>Session title</span>
                   <input value={sessionTitle} onChange={(event) => setSessionTitle(event.target.value)} placeholder="Friday Night Session" />
+                </label>
+                <label className="app-field">
+                  <span>Join code</span>
+                  <input value={sessionJoinCode} onChange={(event) => setSessionJoinCode(event.target.value.toUpperCase())} placeholder="ABC123" />
                 </label>
                 <label className="app-field">
                   <span>Ruleset</span>
@@ -532,8 +883,9 @@ export default function App() {
                 </label>
               </div>
               <div className="app-action-row">
-                <Button tone="primary" onClick={handleCreateSession}>Create session</Button>
-                <Button onClick={handleRefreshSession} disabled={!session}>Refresh session</Button>
+                <Button tone="primary" disabled={apiBusy} onClick={handleCreateSession}>Create session</Button>
+                <Button disabled={apiBusy || !sessionJoinCode.trim()} onClick={handleJoinSession}>Open by join code</Button>
+                <Button onClick={handleRefreshSession} disabled={!session || apiBusy}>Refresh session</Button>
               </div>
               {session ? (
                 <div className="app-split-grid">
@@ -544,12 +896,35 @@ export default function App() {
                       <div className="app-mini-row"><strong>Imports</strong><span>{session.imports.length}</span></div>
                     </div>
                   </Card>
-                  <Card title="Pending imports" detail="Players publish cloud revisions into this queue.">
+                  <Card title="Roster seats" detail="Use seats to plan player slots before accepting submitted characters.">
+                    <div className="app-inline-fields">
+                      <label className="app-field">
+                        <span>New player seat</span>
+                        <input value={newSeatName} onChange={(event) => setNewSeatName(event.target.value)} placeholder="Player name or open seat" />
+                      </label>
+                      <Button disabled={apiBusy || !newSeatName.trim()} onClick={handleAddSeat}>Add seat</Button>
+                    </div>
+                    <div className="app-scroll-list">
+                      {session.seats.map((seat) => (
+                        <div key={seat.id} className="app-mini-row">
+                          <strong>{seat.displayName}</strong>
+                          <Badge>{seat.role}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                  <Card title="Character review queue" detail="Players publish saved revisions here; the DM marks each as accepted or rejected.">
                     <div className="app-scroll-list">
                       {session.imports.length ? session.imports.map((entry) => (
                         <div key={entry.id} className="app-mini-row">
                           <strong>{entry.character.name}</strong>
                           <Badge tone={entry.status === "PENDING" ? "warning" : entry.status === "ACCEPTED" ? "success" : "danger"}>{entry.status}</Badge>
+                          {entry.status === "PENDING" ? (
+                            <span className="app-row-actions">
+                              <Button size="sm" disabled={apiBusy} onClick={() => handleReviewImport(entry.id, "ACCEPTED")}>Accept</Button>
+                              <Button size="sm" tone="danger" disabled={apiBusy} onClick={() => handleReviewImport(entry.id, "REJECTED")}>Reject</Button>
+                            </span>
+                          ) : null}
                         </div>
                       )) : <p className="app-muted">No imports have landed yet.</p>}
                     </div>

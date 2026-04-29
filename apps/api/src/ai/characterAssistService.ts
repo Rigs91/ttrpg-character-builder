@@ -19,7 +19,7 @@ import { OllamaClient, type OllamaModelTag } from "./ollamaClient.js";
 const PREFERRED_MODEL = "qwen2.5:7b-instruct";
 
 export interface CharacterAiService {
-  getModelCatalog(): Promise<AiModelCatalogResponse>;
+  getModelCatalog(options?: { forceRefresh?: boolean }): Promise<AiModelCatalogResponse>;
   assist(request: CharacterAssistRequest): Promise<CharacterAssistResponse>;
 }
 
@@ -309,32 +309,47 @@ export function pickDefaultModel(tags: OllamaModelTag[]) {
 }
 
 export class OllamaCharacterAiService implements CharacterAiService {
-  constructor(private readonly client: OllamaClient) {}
+  private catalogCache: { catalog: AiModelCatalogResponse; loadedAt: number } | null = null;
 
-  async getModelCatalog(): Promise<AiModelCatalogResponse> {
+  constructor(
+    private readonly client: OllamaClient,
+    private readonly catalogCacheMs = Number(process.env.OLLAMA_MODEL_CACHE_MS || 15000)
+  ) {}
+
+  async getModelCatalog(options: { forceRefresh?: boolean } = {}): Promise<AiModelCatalogResponse> {
+    if (!options.forceRefresh && this.catalogCache && Date.now() - this.catalogCache.loadedAt < this.catalogCacheMs) {
+      return this.catalogCache.catalog;
+    }
+
     try {
       const tags = await this.client.listModels();
       if (tags.length === 0) {
-        return {
+        const catalog = {
           available: false,
           defaultModel: null,
           models: [],
           reason: "Ollama responded, but no models are installed."
-        };
+        } satisfies AiModelCatalogResponse;
+        this.catalogCache = { catalog, loadedAt: Date.now() };
+        return catalog;
       }
 
-      return {
+      const catalog = {
         available: true,
         defaultModel: pickDefaultModel(tags),
         models: tags.filter(isCompatibleModel).map(mapModelTag)
-      };
+      } satisfies AiModelCatalogResponse;
+      this.catalogCache = { catalog, loadedAt: Date.now() };
+      return catalog;
     } catch (error) {
-      return {
+      const catalog = {
         available: false,
         defaultModel: null,
         models: [],
         reason: error instanceof Error ? error.message : "Ollama is unavailable."
-      };
+      } satisfies AiModelCatalogResponse;
+      this.catalogCache = { catalog, loadedAt: Date.now() };
+      return catalog;
     }
   }
 

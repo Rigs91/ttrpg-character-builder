@@ -4,7 +4,8 @@ import type {
   CharacterAssistResponse,
   CharacterDraft,
   CharacterIssue,
-  DerivedCharacter
+  DerivedCharacter,
+  RulesPreviewResult
 } from "@forge/rules-core";
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) || "http://localhost:8787";
@@ -24,6 +25,7 @@ export interface ApiCharacter {
   notes: string | null;
   issueSummary: IssueSummary;
   latestRevision: { id: string; revisionNumber: number; updatedAt: string };
+  revisions?: Array<{ id: string; revisionNumber: number; reason: string | null; updatedAt: string; issueSummary: IssueSummary }>;
   updatedAt: string;
 }
 
@@ -62,27 +64,69 @@ export interface ApiSessionResponse {
   sessionImport?: ApiSessionImport;
 }
 
+export interface ApiCharacterListResponse {
+  characters: ApiCharacter[];
+}
+
+export interface RulesPreviewResponse {
+  preview: RulesPreviewResult;
+}
+
 interface SnapshotPayload {
   state: CharacterDraft;
   derived: DerivedCharacter | null;
   issues: CharacterIssue[];
 }
 
+function readApiError(payload: unknown, fallback: string) {
+  if (payload && typeof payload === "object" && "error" in payload) {
+    const error = (payload as { error?: { message?: unknown; code?: unknown } }).error;
+    if (typeof error?.message === "string") {
+      return typeof error.code === "string" ? `${error.message} (${error.code})` : error.message;
+    }
+  }
+  if (payload && typeof payload === "object" && "message" in payload && typeof (payload as { message?: unknown }).message === "string") {
+    return (payload as { message: string }).message;
+  }
+  return fallback;
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit) {
+  const headers: Record<string, string> = {
+    ...((init?.headers as Record<string, string> | undefined) || {})
+  };
+  if (init?.body && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {})
-    }
+    headers
   });
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `Request failed: ${response.status}`);
+    let payload: unknown = null;
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch {
+      payload = null;
+    }
+    throw new Error(readApiError(payload, text || `Request failed: ${response.status}`));
   }
 
   return (await response.json()) as T;
+}
+
+function buildQuery(params: Record<string, string | number | undefined>) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value != null && value !== "") {
+      query.set(key, String(value));
+    }
+  }
+  const serialized = query.toString();
+  return serialized ? `?${serialized}` : "";
 }
 
 export function buildSnapshotPayload(state: CharacterDraft, derived: DerivedCharacter | null, issues: CharacterIssue[]): SnapshotPayload {
@@ -130,6 +174,23 @@ export function createCharacterRevision(characterId: string, payload: {
   });
 }
 
+export function listCharacters(params: { search?: string; rulesetId?: string; limit?: number } = {}) {
+  return fetchJson<ApiCharacterListResponse>(`/api/characters${buildQuery(params)}`);
+}
+
+export function restoreCharacterRevision(characterId: string, revisionId: string) {
+  return fetchJson<ApiCharacterResponse>(`/api/characters/${characterId}/revisions/${revisionId}/restore`, {
+    method: "POST"
+  });
+}
+
+export function requestRulesPreview(draft: CharacterDraft) {
+  return fetchJson<RulesPreviewResponse>("/api/rules/preview", {
+    method: "POST",
+    body: JSON.stringify({ draft })
+  });
+}
+
 export function createSession(payload: {
   ownerName: string;
   ownerEmail?: string;
@@ -151,6 +212,10 @@ export function getSession(sessionId: string) {
   return fetchJson<ApiSessionResponse>(`/api/sessions/${sessionId}`);
 }
 
+export function getSessionByJoinCode(joinCode: string) {
+  return fetchJson<ApiSessionResponse>(`/api/sessions/join/${encodeURIComponent(joinCode)}`);
+}
+
 export function publishCharacterToSession(sessionId: string, payload: { characterId: string; submittedByName: string; submittedByEmail?: string; note?: string }) {
   return fetchJson<ApiSessionResponse>(`/api/sessions/${sessionId}/imports`, {
     method: "POST",
@@ -162,14 +227,32 @@ export function publishCharacterToSession(sessionId: string, payload: { characte
   });
 }
 
+export function reviewSessionImport(sessionId: string, importId: string, status: "ACCEPTED" | "REJECTED") {
+  return fetchJson<ApiSessionResponse>(`/api/sessions/${sessionId}/imports/${importId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status })
+  });
+}
+
+export function addSessionSeat(sessionId: string, payload: { displayName: string; role: "DM" | "PLAYER" | "OBSERVER"; ownerName?: string; ownerEmail?: string }) {
+  return fetchJson<ApiSessionResponse>(`/api/sessions/${sessionId}/seats`, {
+    method: "POST",
+    body: JSON.stringify({
+      displayName: payload.displayName,
+      role: payload.role,
+      user: payload.ownerName ? { name: payload.ownerName, email: payload.ownerEmail || undefined } : undefined
+    })
+  });
+}
+
 export function buildSessionSocketUrl(sessionId: string) {
   const url = new URL(`/ws/sessions/${sessionId}`, API_BASE_URL);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }
 
-export function getAiModels() {
-  return fetchJson<AiModelCatalogResponse>("/api/ai/models");
+export function getAiModels(refresh = false) {
+  return fetchJson<AiModelCatalogResponse>(`/api/ai/models${refresh ? "?refresh=true" : ""}`);
 }
 
 export function requestCharacterAssist(payload: CharacterAssistRequest) {

@@ -21,11 +21,30 @@ interface OllamaGenerateResponse {
 export class OllamaClient {
   constructor(
     private readonly baseUrl = "http://localhost:11434",
-    private readonly fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis)
+    private readonly fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis),
+    private readonly timeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS || 12000)
   ) {}
 
+  private async fetchWithTimeout(input: string, init: RequestInit = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      return await this.fetchImpl(input, {
+        ...init,
+        signal: init.signal ?? controller.signal
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new AiServiceError("ai.ollama_timeout", `Ollama request timed out after ${this.timeoutMs}ms.`, 503);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   async listModels() {
-    const response = await this.fetchImpl(`${this.baseUrl}/api/tags`);
+    const response = await this.fetchWithTimeout(`${this.baseUrl}/api/tags`);
     if (!response.ok) {
       throw new AiServiceError("ai.ollama_unavailable", `Ollama tags request failed with status ${response.status}.`, 503);
     }
@@ -35,7 +54,7 @@ export class OllamaClient {
   }
 
   async generateJson(model: string, prompt: string) {
-    const response = await this.fetchImpl(`${this.baseUrl}/api/generate`, {
+    const response = await this.fetchWithTimeout(`${this.baseUrl}/api/generate`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"

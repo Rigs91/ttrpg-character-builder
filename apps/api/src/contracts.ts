@@ -70,6 +70,21 @@ export const sessionImportCreateSchema = z.object({
   note: z.string().min(1).optional()
 });
 
+export const sessionImportReviewSchema = z.object({
+  status: z.enum(["ACCEPTED", "REJECTED"]),
+  note: z.string().min(1).optional()
+});
+
+export const sessionStatusUpdateSchema = z.object({
+  status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"])
+});
+
+export const sessionSeatCreateSchema = z.object({
+  user: userRefSchema.optional(),
+  displayName: z.string().min(1),
+  role: z.enum(["DM", "PLAYER", "OBSERVER"]).default("PLAYER")
+});
+
 export type ForgeIssue = z.infer<typeof forgeIssueSchema>;
 export type IssueSummary = z.infer<typeof issueSummarySchema>;
 export type UserRefInput = z.infer<typeof userRefSchema>;
@@ -80,6 +95,9 @@ export type CharacterRevisionCreateInput = z.infer<typeof characterRevisionCreat
 export type SessionSeatInput = z.infer<typeof sessionSeatSchema>;
 export type SessionCreateInput = z.infer<typeof sessionCreateSchema>;
 export type SessionImportCreateInput = z.infer<typeof sessionImportCreateSchema>;
+export type SessionImportReviewInput = z.infer<typeof sessionImportReviewSchema>;
+export type SessionStatusUpdateInput = z.infer<typeof sessionStatusUpdateSchema>;
+export type SessionSeatCreateInput = z.infer<typeof sessionSeatCreateSchema>;
 
 export interface UserRecord {
   id: string;
